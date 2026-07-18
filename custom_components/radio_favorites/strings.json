@@ -1,0 +1,48 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Radio Favorites",
+        "description": "Create one central radio list for your Home Assistant media players.",
+        "data": {
+          "name": "Name"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Radio Favorites is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Radio station management",
+        "description": "Add or delete as many stations as needed. Changes are saved only when you choose Finish and close.",
+        "menu_options": {
+          "add_station": "Add or update a radio station",
+          "delete_station": "Delete a radio station",
+          "finish": "Finish and close"
+        }
+      },
+      "add_station": {
+        "title": "Add or update station",
+        "description": "Enter a display name and the direct HTTP or HTTPS audio stream URL. Reusing a name updates its URL.",
+        "data": {
+          "station_name": "Station name",
+          "stream_url": "Direct stream URL"
+        }
+      },
+      "delete_station": {
+        "title": "Delete station",
+        "description": "Select the station to remove from the central list.",
+        "data": {
+          "station_name": "Radio station"
+        }
+      }
+    },
+    "error": {
+      "name_required": "Enter a station name."
+    }
+  }
+}
+

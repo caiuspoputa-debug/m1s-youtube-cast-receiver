@@ -1,0 +1,14 @@
+{
+  "domain": "radio_favorites",
+  "name": "Radio Favorites",
+  "codeowners": [
+    "@caiuspoputa-debug"
+  ],
+  "config_flow": true,
+  "documentation": "https://github.com/caiuspoputa-debug/ha-radio-favorites",
+  "issue_tracker": "https://github.com/caiuspoputa-debug/ha-radio-favorites/issues",
+  "iot_class": "local_push",
+  "requirements": [],
+  "version": "0.1.0"
+}
+
