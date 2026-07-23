@@ -1,0 +1,48 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Radio Favorites",
+        "description": "Creează o singură listă centrală de posturi pentru playerele media din Home Assistant.",
+        "data": {
+          "name": "Nume"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Radio Favorites este deja configurată."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Administrarea posturilor radio",
+        "description": "Adaugă sau șterge oricâte posturi dorești. Modificările se salvează numai când alegi Finalizare și închidere.",
+        "menu_options": {
+          "add_station": "Adaugă sau actualizează un post radio",
+          "delete_station": "Șterge un post radio",
+          "finish": "Finalizare și închidere"
+        }
+      },
+      "add_station": {
+        "title": "Adăugare sau actualizare post",
+        "description": "Introdu numele afișat și adresa HTTP sau HTTPS directă a fluxului audio. Dacă refolosești același nume, adresa este actualizată.",
+        "data": {
+          "station_name": "Numele postului",
+          "stream_url": "Adresa directă a fluxului"
+        }
+      },
+      "delete_station": {
+        "title": "Ștergere post",
+        "description": "Selectează postul care va fi eliminat din lista centrală.",
+        "data": {
+          "station_name": "Post radio"
+        }
+      }
+    },
+    "error": {
+      "name_required": "Introdu numele postului."
+    }
+  }
+}
+
