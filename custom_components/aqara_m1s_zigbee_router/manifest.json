@@ -1,0 +1,17 @@
+{
+  "domain": "aqara_m1s_zigbee_router",
+  "name": "Aqara M1S Zigbee Router",
+  "codeowners": [
+    "@caiuspoputa-debug"
+  ],
+  "config_flow": true,
+  "documentation": "https://github.com/caiuspoputa-debug/ha-aqara-m1s-zigbee-router",
+  "issue_tracker": "https://github.com/caiuspoputa-debug/ha-aqara-m1s-zigbee-router/issues",
+  "iot_class": "local_polling",
+  "dependencies": [
+    "file_upload",
+    "mqtt"
+  ],
+  "requirements": [],
+  "version": "0.5.13"
+}

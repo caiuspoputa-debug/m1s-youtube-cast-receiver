@@ -1,0 +1,88 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Aqara M1S Zigbee Router",
+        "description": "Connect to an Aqara M1S Gen 1 converted to a JN5189 Zigbee Router.",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "username": "Username",
+          "password": "Password",
+          "name": "Name"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Aqara M1S management",
+        "description": "Configure Wi-Fi, sounds and Zigbee rejoin. Choose Finish and close for a controlled full integration reload.",
+        "menu_options": {
+          "upload_sound": "Încarcă WAV sau ZIP / Upload WAV or ZIP",
+          "delete_sound": "Șterge WAV-uri / Delete WAV files",
+          "rejoin_zigbee": "Conectare la alt coordonator Zigbee / Join another Zigbee coordinator",
+          "finish": "Finalizare și închidere / Finish and close",
+          "change_wifi": "Change Wi-Fi network"
+        }
+      },
+      "upload_sound": {
+        "title": "Încărcare WAV / ZIP / Upload WAV / ZIP",
+        "description": "Selectează un WAV sau un ZIP cu până la 64 de fișiere WAV. Fiecare WAV are limita de 20 MiB, iar lotul ZIP are limita totală de 100 MiB. Fișierele ajung în /data/musics/music-ch și lista se reîmprospătează imediat. / Select one WAV or a ZIP containing up to 64 WAV files. Each WAV is limited to 20 MiB and the ZIP batch to 100 MiB total. Files are uploaded to /data/musics/music-ch and the list refreshes immediately.",
+        "data": {
+          "source": "Fișier WAV sau ZIP / WAV or ZIP file"
+        }
+      },
+      "delete_sound": {
+        "title": "Ștergere multiplă WAV / Delete multiple WAV files",
+        "description": "Selectează unul sau mai multe fișiere din /data/musics/music-ch și șterge-le într-o singură operație. / Select one or more files from /data/musics/music-ch and delete them in one operation.",
+        "data": {
+          "path": "Fișiere audio / Sound files"
+        }
+      },
+      "rejoin_zigbee": {
+        "title": "Conectare la alt coordonator Zigbee / Join another Zigbee coordinator",
+        "description": "First enable permit join on the new coordinator. This action permanently clears only the JN5189 Zigbee network context, restarts it and starts Network Steering. The old coordinator entry becomes stale. Linux, Wi-Fi, RGB, lux and sound files are not erased.",
+        "data": {
+          "confirm": "Am înțeles și vreau să șterg asocierea Zigbee actuală / I understand and want to clear the current Zigbee association"
+        }
+      },
+      "change_wifi": {
+        "title": "Change Wi-Fi network",
+        "description": "Requires the optional Wi-Fi recovery module on the hub. The new network is tested locally and promoted only after a fresh IPv4 address is obtained. If the test fails, the hub enters recovery. Reserve the same IP for the hub MAC before changing networks. The Wi-Fi password is not stored in Home Assistant configuration.",
+        "data": {
+          "ssid": "New SSID",
+          "wifi_password": "New Wi-Fi password",
+          "confirm": "I confirm the Wi-Fi network change"
+        }
+      }
+    },
+    "error": {
+      "upload_failed": "Upload failed. Verify the WAV format and hub connection.",
+      "delete_failed": "Delete failed. Verify the hub connection.",
+      "rejoin_confirmation_required": "Confirmation is required before clearing the current Zigbee association.",
+      "rejoin_failed": "The JN5189 did not acknowledge the rejoin command. Verify the hub connection and compatible firmware.",
+      "wifi_confirmation_required": "Confirmation is required before changing the Wi-Fi network.",
+      "wifi_invalid": "The SSID or Wi-Fi password is invalid.",
+      "wifi_change_failed": "The Wi-Fi change could not be started. Verify Telnet and the Wi-Fi recovery module installation."
+    },
+    "abort": {
+      "no_managed_sounds": "No WAV files were found in /data/musics/music-ch.",
+      "wifi_change_started": "The new Wi-Fi network test has started on the hub. Connectivity may drop temporarily. The hub keeps the new network only after obtaining a fresh IPv4 address."
+    }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "button_action": "Physical button: {subtype}"
+    },
+    "trigger_subtype": {
+      "click": "Click",
+      "double_click": "Double click",
+      "triple_click": "Triple click",
+      "quadruple_click": "Quadruple click",
+      "five_click": "Five clicks",
+      "hold": "Hold"
+    }
+  }
+}

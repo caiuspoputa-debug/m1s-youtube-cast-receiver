@@ -1,0 +1,88 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Aqara M1S Zigbee Router",
+        "description": "Connect to an Aqara M1S Gen 1 converted to a JN5189 Zigbee Router.",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "username": "Username",
+          "password": "Password",
+          "name": "Name"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Administrare Aqara M1S / Aqara M1S management",
+        "description": "Configurează Wi-Fi, sunetele și reconectarea Zigbee. Pentru închiderea corectă și reîncărcarea completă a integrării, alege Finalizare și închidere. / Configure Wi-Fi, sounds and Zigbee rejoin. To close correctly and fully reload the integration, choose Finish and close.",
+        "menu_options": {
+          "upload_sound": "Încarcă WAV sau ZIP / Upload WAV or ZIP",
+          "delete_sound": "Șterge WAV-uri / Delete WAV files",
+          "rejoin_zigbee": "Conectare la alt coordonator Zigbee / Join another Zigbee coordinator",
+          "finish": "Finalizare și închidere / Finish and close",
+          "change_wifi": "Schimbă rețeaua Wi-Fi / Change Wi-Fi network"
+        }
+      },
+      "upload_sound": {
+        "title": "Încărcare WAV / ZIP / Upload WAV / ZIP",
+        "description": "Selectează un WAV sau un ZIP cu până la 64 de fișiere WAV. Fiecare WAV are limita de 20 MiB, iar lotul ZIP are limita totală de 100 MiB. Fișierele ajung în /data/musics/music-ch și lista se reîmprospătează imediat. / Select one WAV or a ZIP containing up to 64 WAV files. Each WAV is limited to 20 MiB and the ZIP batch to 100 MiB total. Files are uploaded to /data/musics/music-ch and the list refreshes immediately.",
+        "data": {
+          "source": "Fișier WAV sau ZIP / WAV or ZIP file"
+        }
+      },
+      "delete_sound": {
+        "title": "Ștergere multiplă WAV / Delete multiple WAV files",
+        "description": "Selectează unul sau mai multe fișiere din /data/musics/music-ch și șterge-le într-o singură operație. / Select one or more files from /data/musics/music-ch and delete them in one operation.",
+        "data": {
+          "path": "Fișiere audio / Sound files"
+        }
+      },
+      "rejoin_zigbee": {
+        "title": "Conectare la alt coordonator Zigbee / Join another Zigbee coordinator",
+        "description": "First enable permit join on the new coordinator. This action permanently clears only the JN5189 Zigbee network context, restarts it and starts Network Steering. The old coordinator entry becomes stale. Linux, Wi-Fi, RGB, lux and sound files are not erased.",
+        "data": {
+          "confirm": "Am înțeles și vreau să șterg asocierea Zigbee actuală / I understand and want to clear the current Zigbee association"
+        }
+      },
+      "change_wifi": {
+        "title": "Schimbă rețeaua Wi-Fi / Change Wi-Fi network",
+        "description": "Necesită modulul opțional Wi-Fi recovery instalat pe hub. Noua rețea este testată local; devine backup numai după obținerea unui IPv4 proaspăt. Dacă testul eșuează, hubul intră în mecanismul de recuperare. Rezervă în router același IP pentru MAC-ul hubului înainte de schimbare. Parola nu este salvată în configurația Home Assistant. / Requires the optional Wi-Fi recovery module on the hub. The new network is tested locally and is promoted only after a fresh IPv4 address is obtained. If the test fails, the hub enters recovery. Reserve the same IP for the hub MAC before changing networks. The password is not stored in Home Assistant configuration.",
+        "data": {
+          "ssid": "SSID nou / New SSID",
+          "wifi_password": "Parolă Wi-Fi nouă / New Wi-Fi password",
+          "confirm": "Confirm schimbarea rețelei / Confirm network change"
+        }
+      }
+    },
+    "error": {
+      "upload_failed": "Upload failed. Verify the WAV format and hub connection.",
+      "delete_failed": "Delete failed. Verify the hub connection.",
+      "rejoin_confirmation_required": "Confirmation is required before clearing the current Zigbee association.",
+      "rejoin_failed": "The JN5189 did not acknowledge the rejoin command. Verify the hub connection and compatible firmware.",
+      "wifi_confirmation_required": "Bifează confirmarea înainte de schimbarea rețelei Wi-Fi.",
+      "wifi_invalid": "SSID-ul sau parola Wi-Fi nu sunt valide.",
+      "wifi_change_failed": "Schimbarea Wi-Fi nu a putut fi pornită. Verifică Telnet și instalarea modulului Wi-Fi recovery."
+    },
+    "abort": {
+      "no_managed_sounds": "No WAV files were found in /data/musics/music-ch.",
+      "wifi_change_started": "Testul noii rețele Wi-Fi a fost pornit pe hub. Conexiunea poate cădea temporar. Hubul păstrează noua rețea numai după obținerea unui IPv4 proaspăt."
+    }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "button_action": "Physical button: {subtype}"
+    },
+    "trigger_subtype": {
+      "click": "Click",
+      "double_click": "Double click",
+      "triple_click": "Triple click",
+      "quadruple_click": "Quadruple click",
+      "five_click": "Five clicks",
+      "hold": "Hold"
+    }
+  }
+}
