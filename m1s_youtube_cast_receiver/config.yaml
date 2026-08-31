@@ -1,0 +1,31 @@
+name: "M1S YouTube Cast Receiver"
+version: "0.1.0"
+slug: "m1s_youtube_cast_receiver"
+description: >-
+  YouTube / YouTube Music receiver for Aqara M1S media players and M1S Media Group.
+  Uses YouTube DIAL/Lounge control and Home Assistant's media_player API.
+arch:
+  - amd64
+startup: application
+boot: auto
+stage: experimental
+url: "https://github.com/caiuspoputa-debug/m1s-youtube-cast-receiver"
+init: false
+host_network: true
+homeassistant_api: true
+options:
+  target_entity: "media_player.m1s_media_group"
+  device_name: "Aqara M1S Group"
+  audio_port: 8098
+  dial_port: 8099
+  stream_host: ""
+  enable_tv_code: true
+  log_level: "info"
+schema:
+  target_entity: str
+  device_name: str
+  audio_port: port
+  dial_port: port
+  stream_host: str
+  enable_tv_code: bool
+  log_level: "list(error|warn|info|debug)"
