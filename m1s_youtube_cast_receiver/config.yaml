@@ -1,9 +1,9 @@
 name: "M1S YouTube Cast Receiver"
-version: "0.1.1"
+version: "0.2.0"
 slug: "m1s_youtube_cast_receiver"
 description: >-
-  YouTube / YouTube Music receiver for Aqara M1S media players and M1S Media Group.
-  Uses YouTube DIAL/Lounge control and Home Assistant's media_player API.
+  YouTube / YouTube Music multi-receiver for Aqara M1S individual media players
+  and M1S Media Group. Uses YouTube DIAL/Lounge and Home Assistant media_player API.
 arch:
   - amd64
 startup: application
@@ -20,6 +20,9 @@ options:
   dial_port: 8099
   stream_host: ""
   enable_tv_code: true
+  include_individual: true
+  individual_match: "aqara_m1s_zigbee_router"
+  max_receivers: 16
   log_level: "info"
 schema:
   target_entity: str
@@ -28,4 +31,7 @@ schema:
   dial_port: port
   stream_host: str
   enable_tv_code: bool
+  include_individual: bool
+  individual_match: str
+  max_receivers: int
   log_level: "list(error|warn|info|debug)"

@@ -1,28 +1,7 @@
-# M1S YouTube Cast Receiver
+# M1S YouTube Cast Receiver repository
 
-Home Assistant app repository for an experimental YouTube / YouTube Music receiver
-that forwards audio to Aqara M1S media players through Home Assistant.
+Home Assistant repository for the **M1S YouTube Cast Receiver** app/add-on.
 
-## Add this repository to Home Assistant
-
-Add this GitHub repository to the Home Assistant Apps store:
-
-`https://github.com/caiuspoputa-debug/m1s-youtube-cast-receiver`
-
-Then install **M1S YouTube Cast Receiver** from the repository.
-
-The default playback target is:
-
-`media_player.m1s_media_group`
-
-## Architecture
-
-YouTube / YouTube Music sender -> DIAL / YouTube Lounge -> local yt-dlp audio endpoint
--> Home Assistant `media_player.play_media` -> Aqara M1S integration -> existing
-FFmpeg / PCM transport -> M1S hub or M1S Media Group.
-
-The existing Aqara integration is not modified by this app.
-
-## Status
-
-Experimental, version 0.1.0. See the app's `DOCS.md` for installation and first-test instructions.
+v0.2.0 adds multiple YouTube Cast targets: the M1S Media Group plus automatically discovered
+individual Aqara M1S media players, and reduces startup delay by moving metadata lookup out of
+the playback critical path.

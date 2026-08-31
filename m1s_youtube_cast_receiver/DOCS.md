@@ -1,61 +1,66 @@
-# Installation and first test
+# Installation and first test - v0.2.0
 
-This is an experimental local Home Assistant app/add-on for **amd64** (Intel NUC).
+This Home Assistant app/add-on is currently built for **amd64**.
 
-## Install
+## What appears in YouTube
 
-1. Extract the folder `m1s-youtube-cast-receiver-v0.1.0` into the local apps/add-ons directory.
-2. Reload the Home Assistant app/add-on store.
-3. Install **M1S YouTube Cast Receiver**.
-4. In Configuration, verify `target_entity`. The default is:
-   `media_player.m1s_media_group`.
-5. Start it and open its log.
+The add-on creates one DIAL receiver for the configured group target and then discovers
+individual Aqara M1S media players from Home Assistant.
 
-Expected log lines include:
+Typical Cast list:
 
-- `Audio bridge listening ...`
-- `DIAL receiver started: "Aqara M1S Group" ...`
-- optionally `TV pairing code: ...`
+- Aqara M1S Group
+- M1S Atelier
+- M1S Bucataria de vara
+- M1S Salon Narcisa
+- M1S Curte si gradina
 
-## Android test
+The exact individual names come from Home Assistant entity names.
 
-Open YouTube on the phone, press the Cast icon, and look for **Aqara M1S Group**.
-Select it and play a normal public video or song. YouTube Music can be tested the
-same way.
+## Discovery
 
-If DIAL discovery does not appear in YouTube, use the TV code shown in the log:
-YouTube -> Settings -> Watch on TV -> Link with TV code.
+`include_individual: true` enables automatic individual-player discovery.
+`individual_match` is matched against both the media_player entity_id and friendly name.
+The default is `aqara_m1s_zigbee_router`.
 
-## What happens internally
+The group uses `dial_port` (default 8099). Every individual receiver uses the next port:
+8100, 8101, 8102, and so on. `max_receivers` limits the total number including the group.
 
-YouTube sender -> DIAL/Lounge receiver -> video ID -> local yt-dlp audio endpoint
--> Home Assistant `media_player.play_media` -> Aqara M1S integration -> existing
-FFmpeg/PCM M1S transport.
+## Faster start
 
-The Aqara v0.10.26 integration is not modified.
+v0.2.0 does not wait for a separate yt-dlp metadata request before calling Home Assistant
+`media_player.play_media`. Playback is started immediately and metadata is fetched later in
+the background. This removes one serial YouTube lookup from the critical startup path.
 
-## Controls in v0.1.0
+## Audio architecture
 
-- Play: implemented
-- Stop: implemented
-- Volume/mute: implemented
-- Pause/resume: implemented as stop + restart near the remembered position
-- Seek: implemented as restart from the requested position (experimental)
-- Next/previous: handled by yt-cast-receiver's queue, which calls the same player
+YouTube sender -> DIAL/Lounge receiver -> local yt-dlp audio endpoint -> Home Assistant
+`media_player.play_media` -> Aqara M1S integration -> existing FFmpeg/PCM transport.
+
+The HTTP audio bridge is shared, but each receiver has its own active yt-dlp process tracking.
+
+## TV code
+
+To avoid generating a large number of pairing codes, the manual TV pairing code is generated
+only for the group receiver. Individual players are intended to be selected directly from the
+YouTube Cast menu through DIAL discovery.
 
 ## Options
 
-- `target_entity`: M1S media player/group entity id.
-- `device_name`: name shown in YouTube's receiver list.
-- `audio_port`: local audio bridge HTTP port; default 8098.
-- `dial_port`: DIAL HTTP port; default 8099.
-- `stream_host`: normally blank for automatic LAN IPv4 detection. If playback
-  reaches HA but HA cannot open the audio URL, set this to the NUC/HA LAN IP.
-- `enable_tv_code`: prints a YouTube TV pairing code as a discovery fallback.
-- `log_level`: error/warn/info/debug.
+- `target_entity`: group entity, default `media_player.m1s_media_group`.
+- `device_name`: group name shown in YouTube.
+- `audio_port`: shared local audio bridge, default 8098.
+- `dial_port`: first DIAL port, default 8099.
+- `stream_host`: blank = automatic LAN IPv4 detection.
+- `enable_tv_code`: enables manual TV code for the group receiver.
+- `include_individual`: auto-create Cast receivers for individual M1S media players.
+- `individual_match`: text used to identify M1S media_player entities.
+- `max_receivers`: maximum total receiver count including group.
+- `log_level`: error / warn / info / debug.
 
-## Notes
+## First test
 
-The app installs the yt-dlp nightly Python package during image build and uses
-Node.js as the JavaScript runtime required for current YouTube extraction.
-YouTube changes frequently, so this is deliberately marked experimental.
+Start the add-on and check the log. You should see `Discovered N Cast receiver(s)` followed by
+one `Receiver:` line and one `DIAL receiver started:` line per target.
+
+Then open YouTube on Android, press Cast and test the group first, then one individual hub.
