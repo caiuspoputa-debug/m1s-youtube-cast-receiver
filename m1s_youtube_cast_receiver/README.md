@@ -3,6 +3,12 @@
 Home Assistant app/add-on that exposes the Aqara M1S Media Group and the individual
 Aqara M1S media players as YouTube / YouTube Music DIAL receivers.
 
+## v0.3.1
+
+- Fixes the Home Assistant image build failure from v0.3.0 by using the latest
+  `yt-cast-receiver` release that is actually published on npm: `2.1.0`.
+- Keeps the queue-aware playback progression added in v0.3.0.
+
 ## v0.3.0
 
 - Adds queue-aware playback progression for YouTube / YouTube Music Cast sessions.
@@ -12,7 +18,6 @@ Aqara M1S media players as YouTube / YouTube Music DIAL receivers.
 - Cast state is kept across implicit sender disconnects, which helps long playback sessions
   continue if the phone sleeps or briefly leaves the network.
 - Add-on logs now include queue, playlist, and autoplay mode changes for easier testing.
-- Uses `yt-cast-receiver` 2.1.1 for the upstream autoplay queue fix.
 
 ## v0.2.0
 

@@ -1,9 +1,9 @@
 {
   "name": "m1s-youtube-cast-receiver",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "type": "module",
   "dependencies": {
-    "yt-cast-receiver": "2.1.1"
+    "yt-cast-receiver": "2.1.0"
   }
 }

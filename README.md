@@ -2,6 +2,9 @@
 
 Home Assistant repository for the **M1S YouTube Cast Receiver** app/add-on.
 
+v0.3.1 fixes the Home Assistant image build from v0.3.0 by using the latest
+`yt-cast-receiver` package published on npm.
+
 v0.3.0 adds queue-aware YouTube / YouTube Music Cast playback so the receiver can advance
 from the current track into the sender-provided queue, playlist, or autoplay item.
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1
+
+- Fixed Home Assistant image build failure by pinning `yt-cast-receiver` back to
+  the latest version published on npm, `2.1.0`.
+- Kept the local queue/end-of-track advancement logic from 0.3.0.
+- Updated documentation to reflect the npm-published dependency version.
+
 ## 0.3.0
 
 - Added end-of-track queue advancement for YouTube / YouTube Music Cast sessions.
@@ -9,8 +16,6 @@
   temporary network drop does not immediately clear the queue.
 - Enabled autoplay-on-connect explicitly for the receiver app.
 - Added queue and autoplay logging to make playlist / Up Next behavior visible in add-on logs.
-- Updated `yt-cast-receiver` to 2.1.1, which includes an upstream fix for missing autoplay
-  items in the queue.
 
 ## 0.2.0
 
