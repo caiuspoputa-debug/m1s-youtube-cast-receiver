@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0
+
+- Added end-of-track queue advancement for YouTube / YouTube Music Cast sessions.
+- When playback reaches the known duration, the add-on now asks the receiver queue for
+  the next item, including YouTube autoplay when the sender provides it.
+- Preserved Cast session state across implicit sender disconnects so a sleeping phone or
+  temporary network drop does not immediately clear the queue.
+- Enabled autoplay-on-connect explicitly for the receiver app.
+- Added queue and autoplay logging to make playlist / Up Next behavior visible in add-on logs.
+- Updated `yt-cast-receiver` to 2.1.1, which includes an upstream fix for missing autoplay
+  items in the queue.
+
 ## 0.2.0
 
 - Added automatic Cast receivers for individual Aqara M1S media players.

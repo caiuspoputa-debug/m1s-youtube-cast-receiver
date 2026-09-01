@@ -3,7 +3,7 @@ import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import YouTubeCastReceiver, { Player } from 'yt-cast-receiver';
+import YouTubeCastReceiver, { Constants, Player } from 'yt-cast-receiver';
 
 const OPTIONS_PATH = '/data/options.json';
 const YTDLP = '/opt/yt-dlp/bin/yt-dlp';
@@ -374,11 +374,60 @@ class M1SPlayer extends Player {
     this.paused = false;
     this.volume = { level: 50, muted: false };
     this.playGeneration = 0;
+    this.endTimer = null;
+    this.endTransitionRunning = false;
   }
 
   currentPosition() {
     if (this.startedAt === null || this.paused) return this.basePosition;
     return Math.max(0, this.basePosition + (Date.now() - this.startedAt) / 1000);
+  }
+
+  clearEndTimer() {
+    if (this.endTimer) {
+      clearTimeout(this.endTimer);
+      this.endTimer = null;
+    }
+  }
+
+  scheduleEndTransition(generation) {
+    this.clearEndTimer();
+    if (this.paused || this.startedAt === null || generation !== this.playGeneration) return;
+
+    const remaining = Number(this.duration) - this.currentPosition();
+    if (!Number.isFinite(remaining) || remaining <= 1) {
+      log('debug', `[${this.definition.name}] End transition not scheduled; duration is not ready.`);
+      return;
+    }
+
+    const delayMs = Math.min(Math.max(remaining + 1.5, 2), 24 * 60 * 60) * 1000;
+    this.endTimer = setTimeout(() => void this.handlePlaybackEnded(generation), delayMs);
+    log('debug', `[${this.definition.name}] Next-item transition scheduled in ~${(delayMs / 1000).toFixed(1)}s`);
+  }
+
+  async handlePlaybackEnded(generation) {
+    if (generation !== this.playGeneration || this.paused || this.startedAt === null) return;
+    if (this.endTransitionRunning) return;
+
+    this.endTransitionRunning = true;
+    this.clearEndTimer();
+    const endedVideoId = this.currentVideoId;
+    log('info', `[${this.definition.name}] Playback finished: ${endedVideoId}; requesting next queue item.`);
+
+    try {
+      await this.pause();
+      const advanced = await this.next();
+      if (!advanced) {
+        log('info', `[${this.definition.name}] Queue/autoplay had no next item; stopping.`);
+        await this.stop();
+      } else if (this.currentVideoId === endedVideoId) {
+        log('warn', `[${this.definition.name}] Queue selected the same video again; leaving sender state unchanged.`);
+      }
+    } catch (error) {
+      log('error', `[${this.definition.name}] Next-item transition failed.`, error?.message || String(error));
+    } finally {
+      this.endTransitionRunning = false;
+    }
   }
 
   async enrichMetadata(videoId, generation) {
@@ -388,6 +437,7 @@ class M1SPlayer extends Player {
       this.title = metadata?.title || this.title;
       this.duration = Number(metadata?.duration || 0) || this.duration;
       log('debug', `[${this.definition.name}] Metadata ready: ${this.title}`, this.duration ? `${this.duration.toFixed(1)}s` : '');
+      this.scheduleEndTransition(generation);
     } catch (error) {
       log('debug', `[${this.definition.name}] Metadata lookup failed for ${videoId}.`, error.message);
     }
@@ -409,6 +459,7 @@ class M1SPlayer extends Player {
     this.basePosition = Math.max(0, Number(position) || 0);
     this.startedAt = Date.now();
     this.paused = false;
+    this.clearEndTimer();
 
     const url = audioUrl(this.definition.key, id, this.basePosition);
     log('info', `[${this.definition.name}] Play: ${this.title}`, `-> ${this.definition.entityId}`);
@@ -424,10 +475,12 @@ class M1SPlayer extends Player {
       // Metadata is deliberately delayed and fetched in the background so it does
       // not compete with the first audio extraction during startup.
       setTimeout(() => void this.enrichMetadata(id, generation), 750);
+      this.scheduleEndTransition(generation);
       return true;
     } catch (error) {
       log('error', `[${this.definition.name}] Home Assistant play_media failed.`, error.message);
       this.startedAt = null;
+      this.clearEndTimer();
       return false;
     }
   }
@@ -440,6 +493,7 @@ class M1SPlayer extends Player {
     this.basePosition = this.currentPosition();
     this.startedAt = null;
     this.paused = true;
+    this.clearEndTimer();
     killActiveAudio(this.definition.key);
     try {
       await haService(this.definition.entityId, 'media_stop');
@@ -461,6 +515,7 @@ class M1SPlayer extends Player {
     this.basePosition = 0;
     this.startedAt = null;
     this.paused = false;
+    this.clearEndTimer();
     killActiveAudio(this.definition.key);
     try {
       await haService(this.definition.entityId, 'media_stop');
@@ -475,6 +530,7 @@ class M1SPlayer extends Player {
   async doSeek(position) {
     if (!this.currentVideo) return false;
     this.basePosition = Math.max(0, Number(position) || 0);
+    this.clearEndTimer();
     if (this.paused) return true;
     killActiveAudio(this.definition.key);
     try {
@@ -527,6 +583,36 @@ async function initializeVolume(player) {
   }
 }
 
+function installQueueLogging(player) {
+  const queue = player.queue;
+  if (!queue?.on) return;
+
+  queue.on('videoSelected', (event) => {
+    log('info', `[${player.definition.name}] Queue selected: ${event?.videoId || 'unknown'}`);
+  });
+  queue.on('videoAdded', (event) => {
+    log('debug', `[${player.definition.name}] Queue added: ${event?.videoId || 'unknown'}`);
+  });
+  queue.on('videoRemoved', (event) => {
+    log('debug', `[${player.definition.name}] Queue removed: ${event?.videoId || 'unknown'}`);
+  });
+  queue.on('playlistSet', (event) => {
+    log('info', `[${player.definition.name}] Playlist set: ${(event?.videoIds || []).length} item(s)`);
+  });
+  queue.on('playlistAdded', (event) => {
+    log('info', `[${player.definition.name}] Playlist added: ${(event?.videoIds || []).length} item(s)`);
+  });
+  queue.on('playlistCleared', () => {
+    log('info', `[${player.definition.name}] Playlist cleared.`);
+  });
+  queue.on('playlistUpdated', (event) => {
+    log('debug', `[${player.definition.name}] Playlist updated: ${(event?.videoIds || []).length} item(s)`);
+  });
+  queue.on('autoplayModeChange', (previous, current) => {
+    log('info', `[${player.definition.name}] Autoplay mode: ${previous} -> ${current}`);
+  });
+}
+
 receiverDefinitions = await discoverReceiverDefinitions();
 receiverDefinitionsByKey = new Map(receiverDefinitions.map((item) => [item.key, item]));
 
@@ -547,8 +633,13 @@ try {
   for (const def of receiverDefinitions) {
     const player = new M1SPlayer(def);
     await initializeVolume(player);
+    installQueueLogging(player);
 
     const receiver = new YouTubeCastReceiver(player, {
+      app: {
+        enableAutoplayOnConnect: true,
+        resetPlayerOnDisconnectPolicy: Constants.RESET_PLAYER_ON_DISCONNECT_POLICIES.ALL_EXPLICITLY_DISCONNECTED
+      },
       dial: { port: def.port },
       device: {
         name: def.name,
