@@ -1,3 +1,9 @@
+## 0.3.17
+- Compatibility-only packaging fix for 0.3.16.
+- Restores deprecated resume_interrupted_* options in add-on schema so existing Supervisor-stored options remain valid; runtime still ignores them.
+- Cleans repository ZIP structure; no nested build/work directory.
+- Audio/runtime logic is unchanged from 0.3.16.
+
 # Changelog
 
 ## 0.3.16
