@@ -3,7 +3,7 @@
 Home Assistant app/add-on that exposes the Aqara M1S Media Group and the individual
 Aqara M1S media players as YouTube / YouTube Music DIAL receivers.
 
-## v0.3.5
+## v0.3.6
 
 - When you cast to an individual M1S that is currently included in the M1S media group,
   the add-on can remove it from the group automatically before playback starts.

@@ -553,6 +553,56 @@ class M1SPlayer extends Player {
     }
   }
 
+  async interruptionWasExternal(generation, serial, videoId, delayMs) {
+    const expectedPath = `/audio/${encodeURIComponent(this.definition.key)}/${encodeURIComponent(videoId)}/${serial}`;
+    const deadline = Date.now() + delayMs;
+    let sawIdleOrOff = false;
+    let gotReadableState = false;
+
+    while (true) {
+      if (generation !== this.playGeneration) return null;
+
+      try {
+        const state = await haRequest(`/states/${encodeURIComponent(this.definition.entityId)}`);
+        gotReadableState = true;
+        const playerState = String(state?.state || '').toLowerCase();
+        const attrs = state?.attributes || {};
+        const mediaId = String(attrs.media_content_id || attrs.media_content_url || '');
+
+        if (playerState === 'paused') {
+          log('info', `[${this.definition.name}] External pause detected; auto-resume suppressed.`);
+          return false;
+        }
+
+        if (playerState === 'idle' || playerState === 'off' || playerState === 'standby') {
+          sawIdleOrOff = true;
+        }
+
+        if (playerState === 'playing' || playerState === 'buffering') {
+          const stillOurStream = mediaId.includes(expectedPath);
+          if (!stillOurStream) {
+            log('debug', `[${this.definition.name}] Another media item became active during interruption.`, mediaId || playerState);
+            return true;
+          }
+        }
+      } catch (error) {
+        log('debug', `[${this.definition.name}] Could not inspect player state after stream close.`, error?.message || String(error));
+      }
+
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) break;
+      await sleep(Math.min(50, remainingMs));
+    }
+
+    // If HA consistently reports idle/off throughout the debounce window, treat
+    // the stream closure as an intentional Stop from the individual player UI.
+    if (gotReadableState && sawIdleOrOff) return false;
+
+    // If HA state could not be read, preserve the previous behaviour: recover the
+    // current track instead of allowing a short interruption to advance the queue.
+    return true;
+  }
+
   handleStreamInterrupted(serial, videoId, reason) {
     if (!cfg.resumeInterruptedStream) return;
     if (!this.currentStream || this.currentStream.serial !== serial || this.currentStream.videoId !== videoId) return;
@@ -575,14 +625,26 @@ class M1SPlayer extends Player {
     this.clearInterruptResumeTimer();
 
     const delayMs = Math.min(Math.max(0, cfg.resumeInterruptedDelayMs), 10000);
-    log('warn', `[${this.definition.name}] Stream interrupted; resuming current track instead of advancing queue.`, reason);
+    log('warn', `[${this.definition.name}] Stream closed; checking for manual Stop versus short external interruption.`, reason);
 
     this.interruptResumeTimer = setTimeout(() => {
-      if (generation !== this.playGeneration || !this.currentVideo || this.currentVideoId !== videoId) return;
-      const resumePosition = Math.max(0, this.basePosition + delayMs / 1000);
-      log('info', `[${this.definition.name}] Resume interrupted track at ~${resumePosition.toFixed(1)}s`);
-      void this.startAt(this.currentVideo, resumePosition);
-    }, delayMs);
+      this.interruptResumeTimer = null;
+      void (async () => {
+        const externalInterruption = await this.interruptionWasExternal(generation, serial, videoId, delayMs);
+        if (generation !== this.playGeneration || externalInterruption === null || !this.currentVideo || this.currentVideoId !== videoId) return;
+
+        if (!externalInterruption) {
+          log('info', `[${this.definition.name}] Manual Stop detected; YouTube stream will remain stopped.`);
+          await this.stop();
+          return;
+        }
+
+        const resumePosition = Math.max(0, this.basePosition + delayMs / 1000);
+        log('warn', `[${this.definition.name}] Short external interruption detected; resuming current track.`);
+        log('info', `[${this.definition.name}] Resume interrupted track at ~${resumePosition.toFixed(1)}s`);
+        void this.startAt(this.currentVideo, resumePosition);
+      })();
+    }, 0);
   }
 
   async enrichMetadata(videoId, generation) {

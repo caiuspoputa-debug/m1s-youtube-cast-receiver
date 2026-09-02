@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.6
+
+- Distinguishes an intentional Stop/Pause on an individual Home Assistant media player from a short external audio interruption.
+- During the existing 300 ms interruption window, samples the target player's Home Assistant state.
+- If the player remains `idle`/`off` or is `paused`, the Cast session is stopped and the current YouTube track is not auto-resumed.
+- If another media item becomes active, the interruption is treated as a notification/announcement and the same YouTube track is resumed.
+- Prevents the old false auto-resume path from unexpectedly removing the hub from the M1S media group after a manual Stop.
+- Keeps the v0.3.5 receiver/hub mapping logic unchanged.
+
 ## 0.3.5
 
 - Based directly on the last correctly mapped build, 0.3.3.

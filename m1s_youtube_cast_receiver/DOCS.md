@@ -1,4 +1,4 @@
-# Installation and first test - v0.3.5
+# Installation and first test - v0.3.6
 
 This Home Assistant app/add-on is currently built for **amd64**.
 
