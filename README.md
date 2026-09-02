@@ -2,10 +2,7 @@
 
 Home Assistant repository for the **M1S YouTube Cast Receiver** app/add-on.
 
-v0.3.7 remembers whether an individual M1S receiver was in the media group before
-YouTube / YouTube Music playback and restores it on Stop only when it originally was.
-
-v0.3.6 adds automatic removal from the M1S media group when casting directly to an
+v0.3.5 adds automatic removal from the M1S media group when casting directly to an
 individual M1S receiver.
 
 v0.3.2 fixes short external notification interruptions so they resume the current
@@ -21,7 +18,3 @@ from the current track into the sender-provided queue, playlist, or autoplay ite
 v0.2.0 added multiple YouTube Cast targets: the M1S Media Group plus automatically discovered
 individual Aqara M1S media players, and reduced startup delay by moving metadata lookup out of
 the playback critical path.
-
-### Stop when the sender app is closed
-
-With `stop_on_implicit_sender_disconnect: true` (default), if the last YouTube / YouTube Music sender disconnects implicitly, playback is stopped after `sender_disconnect_stop_delay_ms` (default 1000 ms). A sender that reconnects during the grace period cancels that Stop. This also uses the normal Stop path, including conditional restore of an individual hub to the M1S media group.

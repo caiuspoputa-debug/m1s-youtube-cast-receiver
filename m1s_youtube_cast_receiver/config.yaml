@@ -1,5 +1,5 @@
 name: "M1S YouTube Cast Receiver"
-version: "0.3.12"
+version: "0.3.13"
 slug: "m1s_youtube_cast_receiver"
 description: >-
   YouTube / YouTube Music multi-receiver for Aqara M1S individual media players
@@ -22,13 +22,10 @@ options:
   include_individual: true
   individual_match: "aqara_m1s_zigbee_router"
   max_receivers: 16
-  resume_interrupted_stream: true
+  resume_interrupted_stream: false
   resume_interrupted_delay_ms: 300
   auto_remove_individual_from_group: true
-  auto_restore_individual_to_group: true
   auto_remove_group_delay_ms: 300
-  stop_on_implicit_sender_disconnect: true
-  sender_disconnect_stop_delay_ms: 1000
   log_level: "info"
 schema:
   target_entity: str
@@ -43,8 +40,5 @@ schema:
   resume_interrupted_stream: bool
   resume_interrupted_delay_ms: int
   auto_remove_individual_from_group: bool
-  auto_restore_individual_to_group: bool
   auto_remove_group_delay_ms: int
-  stop_on_implicit_sender_disconnect: bool
-  sender_disconnect_stop_delay_ms: int
   log_level: "list(error|warn|info|debug)"
