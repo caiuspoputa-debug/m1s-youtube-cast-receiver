@@ -20,6 +20,8 @@ function readOptions() {
     includeIndividual: raw.include_individual !== false,
     individualMatch: String(raw.individual_match || 'aqara_m1s_zigbee_router').toLowerCase(),
     maxReceivers: Math.max(1, Number(raw.max_receivers || 16)),
+    resumeInterruptedStream: raw.resume_interrupted_stream !== false,
+    resumeInterruptedDelayMs: Math.max(0, Number(raw.resume_interrupted_delay_ms ?? 300)),
     autoRemoveIndividualFromGroup: raw.auto_remove_individual_from_group !== false,
     autoRemoveGroupDelayMs: Math.max(0, Number(raw.auto_remove_group_delay_ms ?? 300)),
     logLevel: String(raw.log_level || 'info')
@@ -505,7 +507,6 @@ class M1SPlayer extends Player {
     this.playGeneration = 0;
     this.endTimer = null;
     this.interruptResumeTimer = null;
-    this.completionTask = null;
     this.endTransitionRunning = false;
     this.currentStream = null;
   }
@@ -516,8 +517,6 @@ class M1SPlayer extends Player {
   }
 
   clearEndTimer() {
-    // v0.3.16: duration-based end timers are intentionally disabled.
-    // Track completion is detected from the Home Assistant finite-media state.
     if (this.endTimer) {
       clearTimeout(this.endTimer);
       this.endTimer = null;
@@ -531,112 +530,19 @@ class M1SPlayer extends Player {
     }
   }
 
-  cancelCompletionMonitor() {
-    if (this.completionTask) {
-      this.completionTask.cancelled = true;
-      this.completionTask = null;
-    }
-  }
-
-  expectedStreamPath() {
-    if (!this.currentStream) return null;
-    return `/audio/${encodeURIComponent(this.definition.key)}/${encodeURIComponent(this.currentStream.videoId)}/${this.currentStream.serial}`;
-  }
-
-  async readTargetPlaybackState() {
-    const state = await haRequest(`/states/${encodeURIComponent(this.definition.entityId)}`);
-    const attrs = state?.attributes || {};
-    const health = attrs.member_receiver_health && typeof attrs.member_receiver_health === 'object'
-      ? attrs.member_receiver_health
-      : {};
-    let maxAlsaDelaySeconds = 0;
-    for (const item of Object.values(health)) {
-      const frames = Number(item?.alsa_delay_frames);
-      if (Number.isFinite(frames) && frames > 0) {
-        maxAlsaDelaySeconds = Math.max(maxAlsaDelaySeconds, frames / 32000);
-      }
-    }
-    return {
-      state: String(state?.state || '').toLowerCase(),
-      mediaId: String(attrs.media_content_id || attrs.media_content_url || attrs.last_media_id || ''),
-      remotePrefillSeconds: Number(attrs.group_remote_prefill_seconds || 0) || 0,
-      maxAlsaDelaySeconds
-    };
-  }
-
-  async waitUntilTargetStopped(expectedPath, timeoutMs = 2200) {
-    const deadline = Date.now() + Math.max(100, timeoutMs);
-    while (Date.now() < deadline) {
-      try {
-        const snapshot = await this.readTargetPlaybackState();
-        const active = snapshot.state === 'playing' || snapshot.state === 'buffering';
-        if (!active) return true;
-        // If a newer source has already taken ownership, do not stop it here.
-        if (expectedPath && snapshot.mediaId && !snapshot.mediaId.includes(expectedPath)) return true;
-      } catch (_) {
-        // A successful service call is still authoritative; retry state briefly.
-      }
-      await sleep(60);
-    }
-    return false;
-  }
-
-  startCompletionMonitor(generation) {
-    this.cancelCompletionMonitor();
-    const token = { cancelled: false };
-    this.completionTask = token;
-
-    void (async () => {
-      const expectedPath = this.expectedStreamPath();
-      if (!expectedPath) return;
-      let sawOurActiveSource = false;
-
-      while (!token.cancelled && generation === this.playGeneration) {
-        try {
-          const snapshot = await this.readTargetPlaybackState();
-          const isOurSource = Boolean(snapshot.mediaId && snapshot.mediaId.includes(expectedPath));
-          const active = snapshot.state === 'playing' || snapshot.state === 'buffering';
-
-          if (isOurSource && active) {
-            sawOurActiveSource = true;
-          } else if (sawOurActiveSource && isOurSource && !active) {
-            // v0.10.36 marks finite-media EOF as IDLE when the final PCM has
-            // been handed to the hub pipelines. Allow only the receiver-side
-            // prefill tail to drain; this is derived from the integration state,
-            // not a duration/timeline guess.
-            const bufferedTailSeconds = Math.max(snapshot.remotePrefillSeconds, snapshot.maxAlsaDelaySeconds || 0);
-            const drainMs = Math.max(250, Math.min(3000, Math.round((bufferedTailSeconds + 0.25) * 1000)));
-            if (drainMs > 0) await sleep(drainMs);
-            if (token.cancelled || generation !== this.playGeneration) return;
-
-            const confirm = await this.readTargetPlaybackState();
-            const confirmOurSource = Boolean(confirm.mediaId && confirm.mediaId.includes(expectedPath));
-            const confirmActive = confirm.state === 'playing' || confirm.state === 'buffering';
-            if (confirmOurSource && !confirmActive) {
-              await this.handlePlaybackEnded(generation);
-              return;
-            }
-          } else if (sawOurActiveSource && snapshot.mediaId && !isOurSource) {
-            // A persistent newer HA source (Radio, etc.) owns the player now.
-            // Do not let the YouTube local queue reclaim it.
-            log('info', `[${this.definition.name}] HA source changed away from YouTube; cancelling automatic queue advance.`);
-            this.cancelCompletionMonitor();
-            return;
-          }
-        } catch (error) {
-          log('debug', `[${this.definition.name}] Completion-state poll failed.`, error?.message || String(error));
-        }
-        await sleep(250);
-      }
-    })().finally(() => {
-      if (this.completionTask === token) this.completionTask = null;
-    });
-  }
-
   scheduleEndTransition(generation) {
-    // Kept as a compatibility no-op. v0.3.16 never advances by metadata duration.
     this.clearEndTimer();
-    if (generation === this.playGeneration) this.startCompletionMonitor(generation);
+    if (this.paused || this.startedAt === null || generation !== this.playGeneration) return;
+
+    const remaining = Number(this.duration) - this.currentPosition();
+    if (!Number.isFinite(remaining) || remaining <= 1) {
+      log('debug', `[${this.definition.name}] End transition not scheduled; duration is not ready.`);
+      return;
+    }
+
+    const delayMs = Math.min(Math.max(remaining + 4.0, 2), 24 * 60 * 60) * 1000;
+    this.endTimer = setTimeout(() => void this.handlePlaybackEnded(generation), delayMs);
+    log('debug', `[${this.definition.name}] Next-item transition scheduled in ~${(delayMs / 1000).toFixed(1)}s`);
   }
 
   async handlePlaybackEnded(generation) {
@@ -687,25 +593,20 @@ class M1SPlayer extends Player {
   async ensureGroupCleanStart() {
     if (!this.definition.isGroup) return true;
 
-    // Mirror the manual sequence that is known to synchronize the hubs:
-    // HA STOP first while the old HTTP stream still exists, wait for HA to
-    // report the group stopped, then terminate the obsolete stream. No fixed
-    // 300 ms delay on the normal path.
-    const expectedPath = this.expectedStreamPath();
+    // Manual STOP -> PLAY is known to start the M1S cohort in sync. Reproduce that
+    // exact clean boundary automatically before a new YouTube/YTM group play.
+    killActiveAudio(this.definition.key);
     let lastError = null;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
         await haService(this.definition.entityId, 'media_stop');
-        const stopped = await this.waitUntilTargetStopped(expectedPath);
-        if (!stopped) throw new Error('group did not reach a stopped state before Play');
-        killActiveAudio(this.definition.key);
-        log('debug', `[${this.definition.name}] Clean group STOP confirmed before Play.`);
+        await sleep(300);
+        log('debug', `[${this.definition.name}] Clean group STOP completed before Play.`);
         return true;
       } catch (error) {
         lastError = error;
         log(attempt < 3 ? 'warn' : 'error', `[${this.definition.name}] Pre-Play group STOP attempt ${attempt}/3 failed.`, error?.message || String(error));
-        // Backoff exists only on an actual failed STOP/state confirmation.
-        if (attempt < 3) await sleep(180 * attempt);
+        if (attempt < 3) await sleep(350 * attempt);
       }
     }
     log('error', `[${this.definition.name}] Refusing group Play without a clean STOP boundary.`, lastError?.message || 'unknown error');
@@ -727,6 +628,7 @@ class M1SPlayer extends Player {
       this.title = metadata?.title || this.title;
       this.duration = Number(metadata?.duration || 0) || this.duration;
       log('debug', `[${this.definition.name}] Metadata ready: ${this.title}`, this.duration ? `${this.duration.toFixed(1)}s` : '');
+      this.scheduleEndTransition(generation);
     } catch (error) {
       log('debug', `[${this.definition.name}] Metadata lookup failed for ${videoId}.`, error.message);
     }
@@ -764,7 +666,6 @@ class M1SPlayer extends Player {
     this.paused = false;
     this.clearEndTimer();
     this.clearInterruptResumeTimer();
-    this.cancelCompletionMonitor();
 
     await this.ensureIndividualReadyForPlayback();
     if (!(await this.ensureGroupCleanStart())) {
@@ -799,7 +700,7 @@ class M1SPlayer extends Player {
       // Metadata is deliberately delayed and fetched in the background so it does
       // not compete with the first audio extraction during startup.
       setTimeout(() => void this.enrichMetadata(id, generation), 750);
-      this.startCompletionMonitor(generation);
+      this.scheduleEndTransition(generation);
       return true;
     } catch (error) {
       log('error', `[${this.definition.name}] Home Assistant play_media failed.`, error.message);
@@ -821,20 +722,17 @@ class M1SPlayer extends Player {
     this.paused = true;
     this.clearEndTimer();
     this.clearInterruptResumeTimer();
-    this.cancelCompletionMonitor();
-    const expectedPath = this.expectedStreamPath();
+    killActiveAudio(this.definition.key);
     let lastError = null;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
         await haService(this.definition.entityId, 'media_stop');
-        await this.waitUntilTargetStopped(expectedPath);
-        killActiveAudio(this.definition.key);
         log('info', `[${this.definition.name}] Paused at ~${this.basePosition.toFixed(1)}s`);
         return true;
       } catch (error) {
         lastError = error;
         log(attempt < 3 ? 'warn' : 'error', `[${this.definition.name}] Pause/stop attempt ${attempt}/3 failed.`, error.message);
-        if (attempt < 3) await sleep(180 * attempt);
+        if (attempt < 3) await sleep(350 * attempt);
       }
     }
     log('error', `[${this.definition.name}] Pause/stop failed after retries.`, lastError?.message || 'unknown error');
@@ -847,25 +745,19 @@ class M1SPlayer extends Player {
   }
 
   async doStop() {
-    const expectedPath = this.expectedStreamPath();
     this.playGeneration += 1;
     this.basePosition = 0;
     this.startedAt = null;
     this.paused = false;
+    this.currentStream = null;
     this.clearEndTimer();
     this.clearInterruptResumeTimer();
-    this.cancelCompletionMonitor();
+    killActiveAudio(this.definition.key);
     try {
       await haService(this.definition.entityId, 'media_stop');
-      await this.waitUntilTargetStopped(expectedPath);
-      killActiveAudio(this.definition.key);
-      this.currentStream = null;
       log('info', `[${this.definition.name}] Stopped.`);
       return true;
     } catch (error) {
-      // Even on HA failure, do not leave the old yt-dlp child around forever.
-      killActiveAudio(this.definition.key);
-      this.currentStream = null;
       log('error', `[${this.definition.name}] Stop failed.`, error.message);
       return false;
     }
@@ -877,14 +769,12 @@ class M1SPlayer extends Player {
     this.clearEndTimer();
     this.clearInterruptResumeTimer();
     if (this.paused) return true;
+    killActiveAudio(this.definition.key);
     try {
-      const expectedPath = this.expectedStreamPath();
       await haService(this.definition.entityId, 'media_stop');
-      await this.waitUntilTargetStopped(expectedPath);
     } catch (_) {
       // The new play request below is authoritative.
     }
-    killActiveAudio(this.definition.key);
     return this.startAt(this.currentVideo, this.basePosition);
   }
 

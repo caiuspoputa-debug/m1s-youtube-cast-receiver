@@ -1,13 +1,5 @@
 # Changelog
 
-## 0.3.16
-
-- Group Play now mirrors the proven manual STOP -> PLAY order: Home Assistant STOP is sent before the obsolete HTTP/yt-dlp stream is terminated; the fixed 300 ms normal-path delay was removed.
-- Queue advance is no longer scheduled from YouTube metadata duration. A finite track advances only after Home Assistant reports that the exact YouTube stream reached IDLE, followed by a drain grace derived from the integration's `group_remote_prefill_seconds`.
-- Mid-track HTTP closes still never trigger resume or next.
-- STOP/Pause/Seek now stop Home Assistant before terminating the old audio child. Retry backoff is used only after a real failure.
-- Removed the obsolete interruption-resume delay options from the add-on config.
-
 ## 0.3.15
 
 - Based strictly on v0.3.14 local-queue-clean behavior; no interruption auto-resume, sender watchdog, notification detection, or same-track timeline logic was reintroduced.
