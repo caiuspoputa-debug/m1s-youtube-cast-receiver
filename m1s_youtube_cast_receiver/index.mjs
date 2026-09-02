@@ -508,7 +508,6 @@ class M1SPlayer extends Player {
     this.completionTask = null;
     this.endTransitionRunning = false;
     this.currentStream = null;
-    this.downstreamTailSeconds = 0;
   }
 
   currentPosition() {
@@ -544,52 +543,24 @@ class M1SPlayer extends Player {
     return `/audio/${encodeURIComponent(this.definition.key)}/${encodeURIComponent(this.currentStream.videoId)}/${this.currentStream.serial}`;
   }
 
-  updateDownstreamTailFromAttributes(attrs = {}) {
-    const jitterSeconds = Math.max(
-      0,
-      Number(attrs.group_jitter_buffer_seconds || 0) || 0,
-      (Number(attrs.single_jitter_buffer_ms || 0) || 0) / 1000
-    );
-    const remotePrefillSeconds = Math.max(
-      0,
-      Number(attrs.group_remote_prefill_seconds || 0) || 0,
-      (Number(attrs.single_remote_prefill_ms || 0) || 0) / 1000
-    );
-    const healthItems = [];
-    if (attrs.member_receiver_health && typeof attrs.member_receiver_health === 'object') {
-      healthItems.push(...Object.values(attrs.member_receiver_health));
-    }
-    if (attrs.last_receiver_health && typeof attrs.last_receiver_health === 'object') {
-      healthItems.push(attrs.last_receiver_health);
-    }
+  async readTargetPlaybackState() {
+    const state = await haRequest(`/states/${encodeURIComponent(this.definition.entityId)}`);
+    const attrs = state?.attributes || {};
+    const health = attrs.member_receiver_health && typeof attrs.member_receiver_health === 'object'
+      ? attrs.member_receiver_health
+      : {};
     let maxAlsaDelaySeconds = 0;
-    for (const item of healthItems) {
+    for (const item of Object.values(health)) {
       const frames = Number(item?.alsa_delay_frames);
       if (Number.isFinite(frames) && frames > 0) {
         maxAlsaDelaySeconds = Math.max(maxAlsaDelaySeconds, frames / 32000);
       }
     }
-
-    const measuredTail = jitterSeconds + Math.max(remotePrefillSeconds, maxAlsaDelaySeconds);
-    if (Number.isFinite(measuredTail) && measuredTail > 0) {
-      const nextTail = Math.max(0, Math.min(10, measuredTail));
-      if (Math.abs(nextTail - this.downstreamTailSeconds) >= 0.05) {
-        log('debug', `[${this.definition.name}] YouTube timeline aligned to buffered audio tail: ${nextTail.toFixed(2)}s`);
-      }
-      this.downstreamTailSeconds = nextTail;
-    }
-    return { jitterSeconds, remotePrefillSeconds, maxAlsaDelaySeconds };
-  }
-
-  async readTargetPlaybackState() {
-    const state = await haRequest(`/states/${encodeURIComponent(this.definition.entityId)}`);
-    const attrs = state?.attributes || {};
-    const timing = this.updateDownstreamTailFromAttributes(attrs);
     return {
       state: String(state?.state || '').toLowerCase(),
       mediaId: String(attrs.media_content_id || attrs.media_content_url || attrs.last_media_id || ''),
-      remotePrefillSeconds: timing.remotePrefillSeconds,
-      maxAlsaDelaySeconds: timing.maxAlsaDelaySeconds
+      remotePrefillSeconds: Number(attrs.group_remote_prefill_seconds || 0) || 0,
+      maxAlsaDelaySeconds
     };
   }
 
@@ -902,10 +873,7 @@ class M1SPlayer extends Player {
 
   async doSeek(position) {
     if (!this.currentVideo) return false;
-    const requestedPosition = Math.max(0, Number(position) || 0);
-    this.basePosition = this.duration > 0
-      ? Math.min(this.duration, requestedPosition)
-      : requestedPosition;
+    this.basePosition = Math.max(0, Number(position) || 0);
     this.clearEndTimer();
     this.clearInterruptResumeTimer();
     if (this.paused) return true;
@@ -941,11 +909,7 @@ class M1SPlayer extends Player {
   }
 
   async doGetDuration() {
-    if (!(this.duration > 0)) return this.duration;
-    // Keep the audio pipeline and its stability buffers untouched. Reporting the
-    // finite downstream tail prevents YouTube/YTM from reaching 00:00 several
-    // seconds before the final buffered PCM is actually heard.
-    return this.duration + this.downstreamTailSeconds;
+    return this.duration;
   }
 }
 
@@ -953,7 +917,6 @@ async function initializeVolume(player) {
   try {
     const state = await haRequest(`/states/${encodeURIComponent(player.definition.entityId)}`);
     const attrs = state?.attributes || {};
-    player.updateDownstreamTailFromAttributes(attrs);
     const level = Number(attrs.volume_level);
     const muted = Boolean(attrs.is_volume_muted);
     if (Number.isFinite(level)) {
