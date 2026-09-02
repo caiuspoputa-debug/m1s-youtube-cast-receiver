@@ -1,3 +1,11 @@
+## 0.3.23 - Source ownership + exact individual group restore
+
+- Based strictly on v0.3.22; no audio extraction, queue timing, title, mapping or group-end changes.
+- When Home Assistant changes from the active YT/YTM stream to Radio/another media source, the add-on relinquishes ownership and publishes STOP to the Cast sender without sending `media_stop` to the new HA source.
+- Stale Pause, Resume, Seek, Next, Previous and Volume commands from the old YT/YTM session are blocked from controlling the newly selected HA source. A fresh explicit YT/YTM Play may acquire the target again.
+- Restores the exact v0.3.7 individual membership behavior: capture `*_include_in_m1s_media_group` once before the first YT/YTM removal; restore on real Stop only if it was originally ON; leave originally standalone hubs standalone.
+- Keeps the fixed receiver-to-hub/include-switch mapping from v0.3.5; no fallback remapping or runtime mapping mutation.
+
 ## 0.3.22 - Deterministic group end guard
 
 - Rebased on the byte-stable 0.3.18/0.3.21 runtime; direct yt-dlp audio remains unchanged.

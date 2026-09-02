@@ -1,5 +1,5 @@
 name: "M1S YouTube Cast Receiver"
-version: "0.3.22"
+version: "0.3.23"
 slug: "m1s_youtube_cast_receiver"
 description: >-
   YouTube / YouTube Music multi-receiver for Aqara M1S individual media players
@@ -25,6 +25,7 @@ options:
   resume_interrupted_stream: false
   resume_interrupted_delay_ms: 300
   auto_remove_individual_from_group: true
+  auto_restore_individual_to_group: true
   auto_remove_group_delay_ms: 300
   log_level: "info"
 schema:
@@ -40,5 +41,6 @@ schema:
   resume_interrupted_stream: bool
   resume_interrupted_delay_ms: int
   auto_remove_individual_from_group: bool
+  auto_restore_individual_to_group: bool
   auto_remove_group_delay_ms: int
   log_level: "list(error|warn|info|debug)"

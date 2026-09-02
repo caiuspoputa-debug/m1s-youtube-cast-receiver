@@ -21,6 +21,7 @@ function readOptions() {
     individualMatch: String(raw.individual_match || 'aqara_m1s_zigbee_router').toLowerCase(),
     maxReceivers: Math.max(1, Number(raw.max_receivers || 16)),
     autoRemoveIndividualFromGroup: raw.auto_remove_individual_from_group !== false,
+    autoRestoreIndividualToGroup: raw.auto_restore_individual_to_group !== false,
     autoRemoveGroupDelayMs: Math.max(0, Number(raw.auto_remove_group_delay_ms ?? 300)),
     logLevel: String(raw.log_level || 'info')
   };
@@ -87,6 +88,10 @@ async function haService(targetEntity, service, data = {}) {
 
 async function switchTurnOff(entityId) {
   return haDomainService('switch', 'turn_off', { entity_id: entityId });
+}
+
+async function switchTurnOn(entityId) {
+  return haDomainService('switch', 'turn_on', { entity_id: entityId });
 }
 
 function sleep(ms) {
@@ -509,6 +514,18 @@ class M1SPlayer extends Player {
     this.endTransitionRunning = false;
     this.currentStream = null;
     this.groupBoundaryPreStopped = false;
+
+    // Exact v0.3.7 individual-group session memory. Capture once before the
+    // first automatic removal and never overwrite it on seek/next/resume.
+    this.groupMembershipCaptured = false;
+    this.wasInGroupBeforeYoutube = false;
+
+    // Ownership guard: once HA switches to a different source, the old YT/YTM
+    // Cast session must no longer be allowed to control that media_player.
+    this.ownsTarget = false;
+    this.sessionRelinquished = false;
+    this.relinquishInProgress = false;
+    this.preserveGroupMembershipAcrossStop = false;
   }
 
   currentPosition() {
@@ -561,6 +578,44 @@ class M1SPlayer extends Player {
       remotePrefillSeconds: Number(attrs.group_remote_prefill_seconds || 0) || 0,
       maxAlsaDelaySeconds
     };
+  }
+
+  async targetStillOwnedByYoutube() {
+    if (!this.ownsTarget || this.sessionRelinquished) return false;
+    const expectedPath = this.expectedStreamPath();
+    if (!expectedPath) return this.ownsTarget;
+
+    try {
+      const snapshot = await this.readTargetPlaybackState();
+      // A non-empty different media id is authoritative: Radio/another source
+      // has taken this HA media_player away from the old YT/YTM session.
+      if (snapshot.mediaId && !snapshot.mediaId.includes(expectedPath)) return false;
+      return true;
+    } catch (_) {
+      // Do not destroy a valid session just because one HA state read failed.
+      return this.ownsTarget;
+    }
+  }
+
+  async relinquishToExternalSource(reason) {
+    if (this.relinquishInProgress || this.sessionRelinquished) return;
+    this.relinquishInProgress = true;
+    this.sessionRelinquished = true;
+    this.ownsTarget = false;
+    this.clearEndTimer();
+    this.clearInterruptResumeTimer();
+    this.cancelCompletionMonitor();
+
+    try {
+      log('info', `[${this.definition.name}] Relinquishing YT/YTM ownership; sender will receive STOP.`, reason || 'external HA source takeover');
+      // Player.stop() updates the Cast sender state. doStop() below sees that
+      // ownership is already relinquished and therefore MUST NOT media_stop HA.
+      await this.stop();
+    } catch (error) {
+      log('warn', `[${this.definition.name}] Could not publish STOP after external source takeover.`, error?.message || String(error));
+    } finally {
+      this.relinquishInProgress = false;
+    }
   }
 
   async waitUntilTargetStopped(expectedPath, timeoutMs = 2200) {
@@ -617,9 +672,8 @@ class M1SPlayer extends Player {
             }
           } else if (sawOurActiveSource && snapshot.mediaId && !isOurSource) {
             // A persistent newer HA source (Radio, etc.) owns the player now.
-            // Do not let the YouTube local queue reclaim it.
-            log('info', `[${this.definition.name}] HA source changed away from YouTube; cancelling automatic queue advance.`);
-            this.cancelCompletionMonitor();
+            // End the Cast-side YT/YTM session WITHOUT stopping the new HA source.
+            await this.relinquishToExternalSource('HA source changed away from the active YouTube stream');
             return;
           }
         } catch (error) {
@@ -730,11 +784,33 @@ class M1SPlayer extends Player {
     }
   }
 
+  async captureGroupMembershipForYoutubeSession() {
+    if (this.groupMembershipCaptured || this.definition.isGroup || !this.definition.includeSwitchEntity) return;
+
+    this.groupMembershipCaptured = true;
+    this.wasInGroupBeforeYoutube = false;
+    const switchEntity = this.definition.includeSwitchEntity;
+
+    try {
+      const state = await haRequest(`/states/${encodeURIComponent(switchEntity)}`);
+      this.wasInGroupBeforeYoutube = String(state?.state || '').toLowerCase() === 'on';
+      log('info', `[${this.definition.name}] Group membership before YouTube session: ${this.wasInGroupBeforeYoutube ? 'in group' : 'outside group'}.`, switchEntity);
+    } catch (error) {
+      // Safe default from v0.3.7: if the old state cannot be proven, never
+      // add a standalone hub to the group by guesswork.
+      log('warn', `[${this.definition.name}] Could not read group membership before YouTube session; automatic restore will be skipped.`, error?.message || String(error));
+    }
+  }
+
   async ensureIndividualReadyForPlayback() {
     if (!cfg.autoRemoveIndividualFromGroup || this.definition.isGroup || !this.definition.includeSwitchEntity) return;
 
-    // Keep the receiver -> hub mapping exactly as discovered at startup.
-    // turn_off is idempotent, so do not depend on a possibly stale HA state.
+    // Capture exactly once per YT/YTM session. startAt() is reused for seek,
+    // next and resume; re-reading after removal would lose the original state.
+    await this.captureGroupMembershipForYoutubeSession();
+
+    // Keep the exact startup mapping from the safe v0.3.5 path. No fallback
+    // lookup and no runtime mutation of receiver -> include-switch mapping.
     const switchEntity = this.definition.includeSwitchEntity;
     try {
       log('info', `[${this.definition.name}] Removing individual player from M1S group before playback.`, switchEntity);
@@ -742,6 +818,33 @@ class M1SPlayer extends Player {
       await sleep(cfg.autoRemoveGroupDelayMs);
     } catch (error) {
       log('warn', `[${this.definition.name}] Could not remove player from M1S group before playback.`, error?.message || String(error));
+    }
+  }
+
+  async restoreIndividualGroupAfterStop(allowRestore = true, clearSessionMemory = true) {
+    const shouldRestore = allowRestore
+      && cfg.autoRestoreIndividualToGroup
+      && !this.definition.isGroup
+      && Boolean(this.definition.includeSwitchEntity)
+      && this.groupMembershipCaptured
+      && this.wasInGroupBeforeYoutube;
+
+    const switchEntity = this.definition.includeSwitchEntity;
+
+    // A YT->YT track transition is still the same Cast session: do not restore
+    // and do not forget the original pre-YouTube membership. Real Stop clears it.
+    if (clearSessionMemory) {
+      this.groupMembershipCaptured = false;
+      this.wasInGroupBeforeYoutube = false;
+    }
+
+    if (!shouldRestore) return;
+
+    try {
+      log('info', `[${this.definition.name}] Restoring individual player to M1S group after YouTube Stop.`, switchEntity);
+      await switchTurnOn(switchEntity);
+    } catch (error) {
+      log('warn', `[${this.definition.name}] Could not restore player to M1S group after YouTube Stop.`, error?.message || String(error));
     }
   }
 
@@ -858,6 +961,11 @@ class M1SPlayer extends Player {
         }
       });
 
+      // Home Assistant accepted our exact stream: this Cast session now owns
+      // the target again. A fresh explicit Play is allowed to reacquire it.
+      this.ownsTarget = true;
+      this.sessionRelinquished = false;
+
       // Start the logical track clock only after Home Assistant accepted Play.
       // This deliberately biases the boundary late rather than cutting audio early.
       if (generation === this.playGeneration) this.startedAt = Date.now();
@@ -877,11 +985,51 @@ class M1SPlayer extends Player {
     }
   }
 
+  async play(video, position, AID) {
+    // Player.play() internally calls stop() when replacing an already playing
+    // item. That is a transport boundary, not the end of the YT/YTM session.
+    // Preserve the original v0.3.7 membership snapshot across that internal stop.
+    const preserveMembership = !this.definition.isGroup
+      && this.groupMembershipCaptured
+      && this.ownsTarget
+      && !this.sessionRelinquished;
+    if (preserveMembership) this.preserveGroupMembershipAcrossStop = true;
+    try {
+      return await super.play(video, position, AID);
+    } finally {
+      this.preserveGroupMembershipAcrossStop = false;
+    }
+  }
+
   async doPlay(video, position) {
+    // Only an explicit Play may reacquire a target after Radio/another HA source
+    // took it away. Stale Pause/Seek/Next/Previous are guarded below.
+    this.sessionRelinquished = false;
     return this.startAt(video, position);
   }
 
+  async next(AID) {
+    if (this.sessionRelinquished || (this.currentVideo && !(await this.targetStillOwnedByYoutube()))) {
+      await this.relinquishToExternalSource('Next ignored after external source takeover');
+      return false;
+    }
+    return super.next(AID);
+  }
+
+  async previous(AID) {
+    if (this.sessionRelinquished || (this.currentVideo && !(await this.targetStillOwnedByYoutube()))) {
+      await this.relinquishToExternalSource('Previous ignored after external source takeover');
+      return false;
+    }
+    return super.previous(AID);
+  }
+
   async doPause() {
+    if (!(await this.targetStillOwnedByYoutube())) {
+      await this.relinquishToExternalSource('Pause ignored because HA is playing another source');
+      return false;
+    }
+
     this.basePosition = this.currentPosition();
     this.startedAt = null;
     this.paused = true;
@@ -895,6 +1043,7 @@ class M1SPlayer extends Player {
         await haService(this.definition.entityId, 'media_stop');
         await this.waitUntilTargetStopped(expectedPath);
         killActiveAudio(this.definition.key);
+        this.ownsTarget = true; // paused YT session still owns the logical target
         log('info', `[${this.definition.name}] Paused at ~${this.basePosition.toFixed(1)}s`);
         return true;
       } catch (error) {
@@ -909,11 +1058,18 @@ class M1SPlayer extends Player {
 
   async doResume() {
     if (!this.currentVideo) return false;
+    if (this.sessionRelinquished || !(await this.targetStillOwnedByYoutube())) {
+      await this.relinquishToExternalSource('Resume ignored because HA is playing another source');
+      return false;
+    }
     return this.startAt(this.currentVideo, this.basePosition);
   }
 
   async doStop() {
     const expectedPath = this.expectedStreamPath();
+    const stillOwned = await this.targetStillOwnedByYoutube();
+    const externalTakeover = this.sessionRelinquished || !stillOwned;
+
     this.playGeneration += 1;
     this.basePosition = 0;
     this.startedAt = null;
@@ -922,37 +1078,62 @@ class M1SPlayer extends Player {
     this.clearInterruptResumeTimer();
     this.cancelCompletionMonitor();
     this.groupBoundaryPreStopped = false;
-    try {
-      await haService(this.definition.entityId, 'media_stop');
-      await this.waitUntilTargetStopped(expectedPath);
-      killActiveAudio(this.definition.key);
-      this.currentStream = null;
-      log('info', `[${this.definition.name}] Stopped.`);
-      return true;
-    } catch (error) {
-      // Even on HA failure, do not leave the old yt-dlp child around forever.
-      killActiveAudio(this.definition.key);
-      this.currentStream = null;
-      log('error', `[${this.definition.name}] Stop failed.`, error.message);
-      return false;
+
+    let stopped = true;
+    if (!externalTakeover) {
+      try {
+        await haService(this.definition.entityId, 'media_stop');
+        await this.waitUntilTargetStopped(expectedPath);
+        log('info', `[${this.definition.name}] Stopped.`);
+      } catch (error) {
+        stopped = false;
+        log('error', `[${this.definition.name}] Stop failed.`, error.message);
+      }
+    } else {
+      // Critical ownership rule: Radio/another HA source is already active.
+      // Return success so Player.stop() publishes STOP to the Cast sender, but
+      // never forward media_stop to Home Assistant and never disturb that source.
+      log('info', `[${this.definition.name}] YT/YTM Stop completed locally; HA source is owned by another media source.`);
     }
+
+    killActiveAudio(this.definition.key);
+    this.currentStream = null;
+    this.ownsTarget = false;
+
+    // Exact v0.3.7 restore semantics on a real YT/YTM Stop. During an internal
+    // YT->YT transition, keep the original membership snapshot untouched. During
+    // an external takeover, clear the YT session memory but do not mutate group
+    // membership underneath the newly selected HA source.
+    if (this.preserveGroupMembershipAcrossStop) {
+      await this.restoreIndividualGroupAfterStop(false, false);
+    } else {
+      await this.restoreIndividualGroupAfterStop(!externalTakeover, true);
+    }
+    return stopped;
   }
 
   async doSeek(position) {
     if (!this.currentVideo) return false;
+    if (this.sessionRelinquished || !(await this.targetStillOwnedByYoutube())) {
+      await this.relinquishToExternalSource('Seek ignored because HA is playing another source');
+      return false;
+    }
+
     this.basePosition = Math.max(0, Number(position) || 0);
     this.clearEndTimer();
     this.clearInterruptResumeTimer();
     if (this.paused) return true;
 
-    // A seek is a brand-new transport start. Do not pre-stop or kill the old
-    // HTTP stream here: startAt() already performs the proven clean sequence
-    // HA STOP -> stopped confirmation -> old stream teardown -> PLAY. Keeping
-    // one authoritative boundary avoids the former double STOP/reset.
+    // A seek is a brand-new transport start. startAt() owns the one clean
+    // STOP -> confirmation -> old-stream teardown -> PLAY boundary.
     return this.startAt(this.currentVideo, this.basePosition);
   }
 
   async doSetVolume(volume) {
+    if (this.currentVideo && (this.sessionRelinquished || !(await this.targetStillOwnedByYoutube()))) {
+      await this.relinquishToExternalSource('Volume command ignored because HA is playing another source');
+      return false;
+    }
     const level = Math.min(100, Math.max(0, Number(volume?.level) || 0));
     const muted = Boolean(volume?.muted);
     try {
