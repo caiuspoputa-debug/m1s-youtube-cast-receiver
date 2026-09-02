@@ -1,3 +1,11 @@
+## 0.3.20 - Stable audio, receiver-aligned timeline
+
+- Rebased directly on 0.3.18; the experimental 3% FFmpeg speed pipeline from 0.3.19 is not included.
+- Keeps the direct yt-dlp audio stream and does not change integration buffers, PCM pacing, resync or playback stability.
+- Reports the integration's HA jitter buffer plus real receiver tail to YouTube/YTM so the sender reaches 00:00 when buffered audio actually completes.
+- Reads the correct timing attributes for both the M1S group and individual media players.
+- Clamps seeks to the real media duration so the reported receiver tail cannot become a seekable phantom segment.
+
 ## 0.3.18
 
 - Seek now reuses the single proven clean group start boundary from `startAt()` instead of issuing a redundant pre-STOP.
