@@ -1,3 +1,11 @@
+# 0.3.8
+
+- Stops the active YouTube / YouTube Music playback when the last sender disappears through an implicit disconnect (for example when the sender app is closed/killed).
+- Uses a short configurable grace period (`sender_disconnect_stop_delay_ms`, default 1000 ms); a fast sender reconnect cancels the Stop.
+- Explicit "Stop Casting" remains handled by `yt-cast-receiver` itself.
+- The normal `doStop()` path is used, so an individual M1S hub is restored to the media group only if it was in the group before the YouTube session.
+- Keeps the v0.3.7 hub mapping, manual Stop handling and interruption-resume logic unchanged.
+
 # Changelog
 
 ## 0.3.7

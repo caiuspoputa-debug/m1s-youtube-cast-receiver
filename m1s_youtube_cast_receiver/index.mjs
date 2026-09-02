@@ -25,6 +25,8 @@ function readOptions() {
     autoRemoveIndividualFromGroup: raw.auto_remove_individual_from_group !== false,
     autoRestoreIndividualToGroup: raw.auto_restore_individual_to_group !== false,
     autoRemoveGroupDelayMs: Math.max(0, Number(raw.auto_remove_group_delay_ms ?? 300)),
+    stopOnImplicitSenderDisconnect: raw.stop_on_implicit_sender_disconnect !== false,
+    senderDisconnectStopDelayMs: Math.max(0, Number(raw.sender_disconnect_stop_delay_ms ?? 1000)),
     logLevel: String(raw.log_level || 'info')
   };
 }
@@ -945,11 +947,44 @@ try {
       logLevel: cfg.logLevel
     });
 
+    let senderDisconnectStopTimer = null;
+    const clearSenderDisconnectStopTimer = () => {
+      if (senderDisconnectStopTimer) {
+        clearTimeout(senderDisconnectStopTimer);
+        senderDisconnectStopTimer = null;
+      }
+    };
+
     receiver.on('senderConnect', (sender) => {
+      clearSenderDisconnectStopTimer();
       log('info', `[${def.name}] Sender connected: ${sender?.name || 'unknown'}`);
     });
     receiver.on('senderDisconnect', (sender, implicit) => {
-      log('info', `[${def.name}] Sender disconnected: ${sender?.name || 'unknown'} implicit=${Boolean(implicit)}`);
+      const isImplicit = Boolean(implicit);
+      const remaining = receiver.getConnectedSenders().length;
+      log('info', `[${def.name}] Sender disconnected: ${sender?.name || 'unknown'} implicit=${isImplicit} remaining=${remaining}`);
+
+      // yt-cast-receiver already resets the player for an explicit "Stop Casting"
+      // because resetPlayerOnDisconnectPolicy is ALL_EXPLICITLY_DISCONNECTED.
+      // Closing/killing YT or YTM is normally observed as an implicit disconnect,
+      // which used to intentionally leave playback running. If the last sender is
+      // gone, stop after a short grace period; a fast reconnect cancels the stop.
+      if (!cfg.stopOnImplicitSenderDisconnect || !isImplicit || remaining > 0) return;
+
+      clearSenderDisconnectStopTimer();
+      const delayMs = Math.min(Math.max(0, cfg.senderDisconnectStopDelayMs), 10000);
+      log('info', `[${def.name}] Last sender disconnected implicitly; stopping playback in ${delayMs} ms unless it reconnects.`);
+      senderDisconnectStopTimer = setTimeout(() => {
+        senderDisconnectStopTimer = null;
+        if (receiver.getConnectedSenders().length > 0) {
+          log('debug', `[${def.name}] Sender reconnected before disconnect-stop timeout; keeping playback.`);
+          return;
+        }
+        log('info', `[${def.name}] Sender app is no longer connected; stopping YouTube playback.`);
+        void player.stop().catch((error) => {
+          log('error', `[${def.name}] Stop after sender disconnect failed.`, error?.message || String(error));
+        });
+      }, delayMs);
     });
     receiver.on('error', (error) => log('error', `[${def.name}] Receiver error.`, error?.message || String(error)));
     receiver.on('terminate', (error) => log('error', `[${def.name}] Receiver terminated.`, error?.message || String(error)));
