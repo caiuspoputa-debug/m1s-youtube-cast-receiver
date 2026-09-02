@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.4
+
+- Fixed automatic group removal being skipped when Home Assistant did not report the include switch as strictly `on`.
+- Individual playback now sends `switch.turn_off` unconditionally; the operation is idempotent when the switch is already off.
+- Added per-playback fallback resolution: use the discovered switch, try the exact derived `*_include_in_m1s_media_group` entity id, then rediscover from Home Assistant if needed.
+- Kept the default group-removal delay at 300 ms.
+
 ## 0.3.3
 
 - Added automatic removal from the M1S media group before playback on an individual

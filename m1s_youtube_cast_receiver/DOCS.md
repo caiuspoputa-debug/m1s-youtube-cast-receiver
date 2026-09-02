@@ -1,4 +1,4 @@
-# Installation and first test - v0.3.3
+# Installation and first test - v0.3.4
 
 This Home Assistant app/add-on is currently built for **amd64**.
 
@@ -46,8 +46,10 @@ If you cast directly to an individual Aqara M1S while that player is still inclu
 target until it is removed from the group.
 
 With `auto_remove_individual_from_group: true`, the add-on looks for the matching switch ending
-in `_include_in_m1s_media_group`. When that switch is on, it turns the switch off, waits
-`auto_remove_group_delay_ms` milliseconds, and then starts the YouTube / YouTube Music stream.
+in `_include_in_m1s_media_group`. Before every individual playback it sends `switch.turn_off`
+unconditionally (the service call is idempotent), waits `auto_remove_group_delay_ms` milliseconds,
+and then starts the YouTube / YouTube Music stream. If the startup association is missing, it also
+tries the derived entity id and then rediscovery from Home Assistant as a fallback.
 
 The default wait is 300 ms.
 

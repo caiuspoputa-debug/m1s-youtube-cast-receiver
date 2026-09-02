@@ -539,18 +539,62 @@ class M1SPlayer extends Player {
   }
 
   async ensureIndividualReadyForPlayback() {
-    if (!cfg.autoRemoveIndividualFromGroup || this.definition.isGroup || !this.definition.includeSwitchEntity) return;
+    if (!cfg.autoRemoveIndividualFromGroup || this.definition.isGroup) return;
 
-    const switchEntity = this.definition.includeSwitchEntity;
+    const mediaEntityId = this.definition.entityId;
+    let lastError = null;
+
+    // First use the switch associated during receiver discovery. Do not inspect its
+    // reported state: switch.turn_off is idempotent, and HA may briefly report a stale
+    // state while the player is still logically attached to the M1S media group.
+    if (this.definition.includeSwitchEntity) {
+      const switchEntity = this.definition.includeSwitchEntity;
+      try {
+        log('info', `[${this.definition.name}] Removing individual player from M1S group before playback.`, switchEntity);
+        await switchTurnOff(switchEntity);
+        await sleep(cfg.autoRemoveGroupDelayMs);
+        return;
+      } catch (error) {
+        lastError = error;
+        log('debug', `[${this.definition.name}] Stored include switch failed; trying fallback resolution.`, `${switchEntity}: ${error?.message || String(error)}`);
+      }
+    }
+
+    // If startup discovery did not associate a switch, try the exact entity id derived
+    // from the media_player name. The GET is only an existence check; its on/off state
+    // is deliberately ignored.
+    const mediaBase = mediaBaseFromEntityId(mediaEntityId);
+    const derivedEntity = `switch.${mediaBase}${INCLUDE_SWITCH_SUFFIX}`;
+    if (!this.definition.includeSwitchEntity || this.definition.includeSwitchEntity.toLowerCase() !== derivedEntity.toLowerCase()) {
+      try {
+        await haRequest(`/states/${encodeURIComponent(derivedEntity)}`);
+        log('info', `[${this.definition.name}] Removing individual player from M1S group before playback.`, derivedEntity);
+        await switchTurnOff(derivedEntity);
+        this.definition.includeSwitchEntity = derivedEntity;
+        await sleep(cfg.autoRemoveGroupDelayMs);
+        return;
+      } catch (error) {
+        lastError = error;
+        log('debug', `[${this.definition.name}] Derived include switch not usable; rediscovering from Home Assistant.`, `${derivedEntity}: ${error?.message || String(error)}`);
+      }
+    }
+
+    // Final fallback: refresh all HA states and score the available include switches again.
     try {
-      const state = await haRequest(`/states/${encodeURIComponent(switchEntity)}`);
-      if (state?.state !== 'on') return;
+      const states = await haRequest('/states');
+      const rediscovered = findIncludeSwitchForMediaPlayer(mediaEntityId, states);
+      if (!rediscovered) {
+        log('warn', `[${this.definition.name}] Could not find matching M1S group include switch for individual playback.`);
+        return;
+      }
 
-      log('info', `[${this.definition.name}] Removing individual player from M1S group before playback.`, switchEntity);
-      await switchTurnOff(switchEntity);
+      log('info', `[${this.definition.name}] Rediscovered M1S group switch; removing individual player before playback.`, rediscovered);
+      await switchTurnOff(rediscovered);
+      this.definition.includeSwitchEntity = rediscovered;
       await sleep(cfg.autoRemoveGroupDelayMs);
     } catch (error) {
-      log('warn', `[${this.definition.name}] Could not remove player from M1S group before playback.`, error?.message || String(error));
+      const reason = error || lastError;
+      log('warn', `[${this.definition.name}] Could not remove player from M1S group before playback.`, reason?.message || String(reason));
     }
   }
 
