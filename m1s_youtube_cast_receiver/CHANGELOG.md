@@ -1,3 +1,9 @@
+## 0.3.18
+
+- Seek now reuses the single proven clean group start boundary from `startAt()` instead of issuing a redundant pre-STOP.
+- Natural track advance no longer calls `pause()`/STOP before `next()`; the next item's `startAt()` performs the one authoritative STOP -> confirmation -> teardown -> PLAY sequence.
+- Removes redundant transport resets/delays without changing clean Play, title lookup, mapping, or finite-EOF detection.
+
 ## 0.3.17
 - Compatibility-only packaging fix for 0.3.16.
 - Restores deprecated resume_interrupted_* options in add-on schema so existing Supervisor-stored options remain valid; runtime still ignores them.

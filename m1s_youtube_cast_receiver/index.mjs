@@ -650,11 +650,11 @@ class M1SPlayer extends Player {
     log('info', `[${this.definition.name}] Playback finished: ${endedVideoId}; requesting next queue item.`);
 
     try {
-      const stoppedCleanly = await this.pause();
-      if (!stoppedCleanly) {
-        log('error', `[${this.definition.name}] Track boundary STOP failed; refusing to advance queue over an active old source.`);
-        return;
-      }
+      // Do not STOP twice at a natural track boundary. The next queue item
+      // enters through startAt(), whose clean-start path performs the single
+      // authoritative HA STOP -> stopped confirmation -> old stream teardown
+      // -> PLAY sequence. Calling pause()/STOP here as well caused a second
+      // transport reset and could desynchronize the group.
       const advanced = await this.next();
       if (!advanced) {
         log('info', `[${this.definition.name}] Queue/autoplay had no next item; stopping.`);
@@ -877,14 +877,11 @@ class M1SPlayer extends Player {
     this.clearEndTimer();
     this.clearInterruptResumeTimer();
     if (this.paused) return true;
-    try {
-      const expectedPath = this.expectedStreamPath();
-      await haService(this.definition.entityId, 'media_stop');
-      await this.waitUntilTargetStopped(expectedPath);
-    } catch (_) {
-      // The new play request below is authoritative.
-    }
-    killActiveAudio(this.definition.key);
+
+    // A seek is a brand-new transport start. Do not pre-stop or kill the old
+    // HTTP stream here: startAt() already performs the proven clean sequence
+    // HA STOP -> stopped confirmation -> old stream teardown -> PLAY. Keeping
+    // one authoritative boundary avoids the former double STOP/reset.
     return this.startAt(this.currentVideo, this.basePosition);
   }
 
