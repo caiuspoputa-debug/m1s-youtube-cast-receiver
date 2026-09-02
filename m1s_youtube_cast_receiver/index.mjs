@@ -23,6 +23,7 @@ function readOptions() {
     resumeInterruptedStream: raw.resume_interrupted_stream !== false,
     resumeInterruptedDelayMs: Math.max(0, Number(raw.resume_interrupted_delay_ms ?? 300)),
     autoRemoveIndividualFromGroup: raw.auto_remove_individual_from_group !== false,
+    autoRestoreIndividualToGroup: raw.auto_restore_individual_to_group !== false,
     autoRemoveGroupDelayMs: Math.max(0, Number(raw.auto_remove_group_delay_ms ?? 300)),
     logLevel: String(raw.log_level || 'info')
   };
@@ -89,6 +90,10 @@ async function haService(targetEntity, service, data = {}) {
 
 async function switchTurnOff(entityId) {
   return haDomainService('switch', 'turn_off', { entity_id: entityId });
+}
+
+async function switchTurnOn(entityId) {
+  return haDomainService('switch', 'turn_on', { entity_id: entityId });
 }
 
 function sleep(ms) {
@@ -476,6 +481,8 @@ class M1SPlayer extends Player {
     this.interruptResumeTimer = null;
     this.endTransitionRunning = false;
     this.currentStream = null;
+    this.groupMembershipCaptured = false;
+    this.wasInGroupBeforeYoutube = false;
   }
 
   currentPosition() {
@@ -538,8 +545,31 @@ class M1SPlayer extends Player {
     }
   }
 
+  async captureGroupMembershipForYoutubeSession() {
+    if (this.groupMembershipCaptured || this.definition.isGroup || !this.definition.includeSwitchEntity) return;
+
+    this.groupMembershipCaptured = true;
+    this.wasInGroupBeforeYoutube = false;
+    const switchEntity = this.definition.includeSwitchEntity;
+
+    try {
+      const state = await haRequest(`/states/${encodeURIComponent(switchEntity)}`);
+      this.wasInGroupBeforeYoutube = String(state?.state || '').toLowerCase() === 'on';
+      log('info', `[${this.definition.name}] Group membership before YouTube session: ${this.wasInGroupBeforeYoutube ? 'in group' : 'outside group'}.`, switchEntity);
+    } catch (error) {
+      // Safe default: if the previous state cannot be proven, do not add the hub
+      // to the group later. This avoids changing an intentionally standalone hub.
+      log('warn', `[${this.definition.name}] Could not read group membership before YouTube session; automatic restore will be skipped.`, error?.message || String(error));
+    }
+  }
+
   async ensureIndividualReadyForPlayback() {
     if (!cfg.autoRemoveIndividualFromGroup || this.definition.isGroup || !this.definition.includeSwitchEntity) return;
+
+    // Capture the pre-YouTube state exactly once per Cast playback session.
+    // startAt() is also used for seek, next-track and interruption resume, so
+    // re-reading the switch later would incorrectly see the hub as already off.
+    await this.captureGroupMembershipForYoutubeSession();
 
     // Keep the receiver -> hub mapping exactly as discovered at startup.
     // turn_off is idempotent, so do not depend on a possibly stale HA state.
@@ -550,6 +580,30 @@ class M1SPlayer extends Player {
       await sleep(cfg.autoRemoveGroupDelayMs);
     } catch (error) {
       log('warn', `[${this.definition.name}] Could not remove player from M1S group before playback.`, error?.message || String(error));
+    }
+  }
+
+  async restoreIndividualGroupAfterStop() {
+    const shouldRestore = cfg.autoRestoreIndividualToGroup
+      && !this.definition.isGroup
+      && Boolean(this.definition.includeSwitchEntity)
+      && this.groupMembershipCaptured
+      && this.wasInGroupBeforeYoutube;
+
+    const switchEntity = this.definition.includeSwitchEntity;
+
+    // Reset the session memory before awaiting HA so a new session can never
+    // inherit stale membership state even if the service call fails.
+    this.groupMembershipCaptured = false;
+    this.wasInGroupBeforeYoutube = false;
+
+    if (!shouldRestore) return;
+
+    try {
+      log('info', `[${this.definition.name}] Restoring individual player to M1S group after YouTube Stop.`, switchEntity);
+      await switchTurnOn(switchEntity);
+    } catch (error) {
+      log('warn', `[${this.definition.name}] Could not restore player to M1S group after YouTube Stop.`, error?.message || String(error));
     }
   }
 
@@ -748,14 +802,20 @@ class M1SPlayer extends Player {
     this.clearEndTimer();
     this.clearInterruptResumeTimer();
     killActiveAudio(this.definition.key);
+
+    let stopped = true;
     try {
       await haService(this.definition.entityId, 'media_stop');
       log('info', `[${this.definition.name}] Stopped.`);
-      return true;
     } catch (error) {
+      stopped = false;
       log('error', `[${this.definition.name}] Stop failed.`, error.message);
-      return false;
     }
+
+    // Restore only when this same YouTube session found the hub in the group
+    // before playback. A hub that was already standalone remains standalone.
+    await this.restoreIndividualGroupAfterStop();
+    return stopped;
   }
 
   async doSeek(position) {

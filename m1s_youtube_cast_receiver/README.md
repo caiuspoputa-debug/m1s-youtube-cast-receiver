@@ -50,3 +50,8 @@ Aqara M1S media players as YouTube / YouTube Music DIAL receivers.
 - Per-receiver persistent datastore under `/data`, avoiding the old shared node-persist issue.
 
 Default group target: `media_player.m1s_media_group`.
+
+
+### Restore individual hub to group after YouTube Stop
+
+With `auto_restore_individual_to_group: true` (default), an individual hub that was in the M1S media group before YouTube / YouTube Music playback is automatically returned to that group when the YouTube session is stopped. If it was already outside the group, it remains outside. The pre-playback membership is remembered once per session so track changes, seeks and interruption resumes do not lose it.

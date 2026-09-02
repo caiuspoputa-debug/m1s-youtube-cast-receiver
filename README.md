@@ -2,6 +2,9 @@
 
 Home Assistant repository for the **M1S YouTube Cast Receiver** app/add-on.
 
+v0.3.7 remembers whether an individual M1S receiver was in the media group before
+YouTube / YouTube Music playback and restores it on Stop only when it originally was.
+
 v0.3.6 adds automatic removal from the M1S media group when casting directly to an
 individual M1S receiver.
 

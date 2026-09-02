@@ -89,3 +89,8 @@ Start the add-on and check the log. You should see `Discovered N Cast receiver(s
 one `Receiver:` line and one `DIAL receiver started:` line per target.
 
 Then open YouTube on Android, press Cast and test the group first, then one individual hub.
+
+
+### Restore individual hub to group after YouTube Stop
+
+With `auto_restore_individual_to_group: true` (default), an individual hub that was in the M1S media group before YouTube / YouTube Music playback is automatically returned to that group when the YouTube session is stopped. If it was already outside the group, it remains outside. The pre-playback membership is remembered once per session so track changes, seeks and interruption resumes do not lose it.

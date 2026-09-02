@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.7
+
+- Remembers whether each individual M1S hub was in the M1S media group immediately before its current YouTube / YouTube Music session.
+- The membership state is captured only once per session, before the first automatic group removal; seek, next-track and interruption resume do not overwrite it.
+- On Stop, automatically restores the individual hub to the group only when it was in the group before YouTube playback began.
+- A hub that was already outside the group remains outside after Stop.
+- If the original group state cannot be read reliably, restoration is skipped as the safe default.
+- Keeps the v0.3.5 receiver/hub mapping and the v0.3.6 manual Stop/interruption fix unchanged.
+
 ## 0.3.6
 
 - Distinguishes an intentional Stop/Pause on an individual Home Assistant media player from a short external audio interruption.
