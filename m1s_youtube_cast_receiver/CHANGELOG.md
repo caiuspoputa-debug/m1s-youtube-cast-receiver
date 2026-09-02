@@ -1,3 +1,9 @@
+## 0.3.29
+
+- Removed the YT/YTM advertised-duration end timer completely.
+- Track completion now follows only the real Home Assistant/integration EOF state monitor.
+- No changes to group STOP settle, ownership, group restore, mapping, Radio, seek, or add-on options.
+
 ## 0.3.28 - YT/YTM end grace 0 seconds
 
 - Changes only the YT/YTM end-of-track safety grace from +10 s to +0 s.

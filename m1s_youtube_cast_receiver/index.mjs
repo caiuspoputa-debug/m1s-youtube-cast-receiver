@@ -689,24 +689,12 @@ class M1SPlayer extends Player {
   scheduleEndTransition(generation) {
     this.clearEndTimer();
     if (generation !== this.playGeneration) return;
-    this.startCompletionMonitor(generation);
-    if (
-      this.paused
-      || this.startedAt === null
-      || !(this.duration > 0)
-    ) return;
 
-    // YT/YTM-only safety boundary. Normal HA EOF remains authoritative and can
-    // advance earlier; this timer exists only for a track that stays active
-    // past its advertised duration. Use zero extra grace: if the exact YT/YTM
-    // source is still active at its advertised duration, force the clean end transition.
-    const remainingSeconds = Math.max(0, this.duration - this.currentPosition());
-    const delayMs = Math.max(250, Math.round((remainingSeconds + 0) * 1000));
-    this.endTimer = setTimeout(() => {
-      this.endTimer = null;
-      void this.handleGroupDurationBoundary(generation);
-    }, delayMs);
-    log('debug', `[${this.definition.name}] YT/YTM end guard armed in ${(delayMs / 1000).toFixed(2)}s (+0s grace).`);
+    // v0.3.29: no advertised-duration timer at all. Track completion is driven
+    // exclusively by the real HA/integration EOF state observed below. This
+    // prevents the add-on from cutting YT/YTM at the metadata duration before
+    // the hub playback pipeline has actually finished.
+    this.startCompletionMonitor(generation);
   }
 
   async handleGroupDurationBoundary(generation) {
