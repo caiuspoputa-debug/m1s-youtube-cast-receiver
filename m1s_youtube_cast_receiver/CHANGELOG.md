@@ -1,4 +1,21 @@
+## 0.3.11
+
+- Distinguishes a short notification/announcement from a persistent Home Assistant source takeover.
+- A persistent different source (for example YTM -> Radio) is never overwritten by YouTube auto-resume.
+- Interruption recovery snapshots the exact video and position and resumes that same track without queue advance.
+- Removes the old near-end interruption shortcut that could turn a notification into an unintended next-track transition.
+- Uses a live connected-sender count when available, reducing stale-session repeats after the phone/sender is gone.
+- Releasing playback to another HA source does not send media_stop and does not disturb the newly selected source.
+
 ## 0.3.9
+
+## 0.3.10
+
+- Track the number of connected YouTube / YouTube Music senders for each receiver.
+- Never auto-resume an interrupted track after the last sender has disconnected.
+- If a track reaches its end with no sender attached, Stop instead of consulting stale queue/autoplay state.
+- Prevents a stale/disconnected Cast session from repeatedly restarting the same song.
+- Keeps v0.3.9 title resolution, group restore, manual Stop, and short-notification recovery unchanged.
 
 - Resolve a lightweight YouTube/YouTube Music title before the initial Home Assistant `play_media` call when the Cast sender supplies only a video id, so `media_title` shows the real track/video name instead of `YouTube <video_id>`.
 - Keep the existing audio path and background full metadata lookup; no second `play_media` call or stream restart is used to update the title.

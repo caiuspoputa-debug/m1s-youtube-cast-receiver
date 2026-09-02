@@ -7,6 +7,7 @@ import YouTubeCastReceiver, { Constants, Player } from 'yt-cast-receiver';
 
 const OPTIONS_PATH = '/data/options.json';
 const YTDLP = '/opt/yt-dlp/bin/yt-dlp';
+const EXTERNAL_MEDIA_TAKEOVER_MS = 2500;
 
 function readOptions() {
   const raw = JSON.parse(fs.readFileSync(OPTIONS_PATH, 'utf8'));
@@ -518,6 +519,39 @@ class M1SPlayer extends Player {
     this.currentStream = null;
     this.groupMembershipCaptured = false;
     this.wasInGroupBeforeYoutube = false;
+    this.connectedSenderCount = 0;
+    this.senderSessionSeen = false;
+    this.senderCountProvider = null;
+    this.interruptionContext = null;
+  }
+
+  setConnectedSenderCount(count) {
+    const normalized = Math.max(0, Number(count) || 0);
+    this.connectedSenderCount = normalized;
+    if (normalized > 0) this.senderSessionSeen = true;
+  }
+
+  setSenderCountProvider(provider) {
+    this.senderCountProvider = typeof provider === 'function' ? provider : null;
+  }
+
+  connectedSenderCountLive() {
+    if (this.senderCountProvider) {
+      try {
+        const live = Number(this.senderCountProvider());
+        if (Number.isFinite(live) && live >= 0) {
+          this.connectedSenderCount = live;
+          if (live > 0) this.senderSessionSeen = true;
+        }
+      } catch (_) {
+        // Fall back to the last event-derived count.
+      }
+    }
+    return this.connectedSenderCount;
+  }
+
+  senderIsGone() {
+    return this.senderSessionSeen && this.connectedSenderCountLive() <= 0;
   }
 
   currentPosition() {
@@ -556,12 +590,24 @@ class M1SPlayer extends Player {
 
   async handlePlaybackEnded(generation) {
     if (generation !== this.playGeneration || this.paused || this.startedAt === null) return;
+    if (this.interruptionContext) return;
     if (this.endTransitionRunning) return;
 
     this.endTransitionRunning = true;
     this.clearEndTimer();
     this.clearInterruptResumeTimer();
     const endedVideoId = this.currentVideoId;
+
+    if (this.senderIsGone()) {
+      log('info', `[${this.definition.name}] Playback ended with no connected YouTube sender; stopping instead of using stale queue state.`);
+      try {
+        await this.stop();
+      } finally {
+        this.endTransitionRunning = false;
+      }
+      return;
+    }
+
     log('info', `[${this.definition.name}] Playback finished: ${endedVideoId}; requesting next queue item.`);
 
     try {
@@ -569,6 +615,9 @@ class M1SPlayer extends Player {
       const advanced = await this.next();
       if (!advanced) {
         log('info', `[${this.definition.name}] Queue/autoplay had no next item; stopping.`);
+        await this.stop();
+      } else if (this.senderIsGone()) {
+        log('info', `[${this.definition.name}] Sender disconnected while advancing the queue; stopping the newly selected item.`);
         await this.stop();
       } else if (this.currentVideoId === endedVideoId) {
         log('warn', `[${this.definition.name}] Queue selected the same video again; leaving sender state unchanged.`);
@@ -642,54 +691,105 @@ class M1SPlayer extends Player {
     }
   }
 
-  async interruptionWasExternal(generation, serial, videoId, delayMs) {
+  async classifyInterruption(context, manualStopDelayMs) {
+    const { generation, serial, videoId } = context;
     const expectedPath = `/audio/${encodeURIComponent(this.definition.key)}/${encodeURIComponent(videoId)}/${serial}`;
-    const deadline = Date.now() + delayMs;
-    let sawIdleOrOff = false;
-    let gotReadableState = false;
+    const started = Date.now();
+    const manualDeadline = started + Math.max(0, manualStopDelayMs);
+    const takeoverDeadline = started + Math.max(EXTERNAL_MEDIA_TAKEOVER_MS, manualStopDelayMs);
+    let sawReadableState = false;
+    let idleSince = null;
+    let externalSince = null;
+    let externalMediaId = '';
 
-    while (true) {
-      if (generation !== this.playGeneration) return null;
+    while (Date.now() <= takeoverDeadline) {
+      if (generation !== this.playGeneration || this.interruptionContext !== context) return null;
+      if (this.senderIsGone()) return 'sender_gone';
 
       try {
         const state = await haRequest(`/states/${encodeURIComponent(this.definition.entityId)}`);
-        gotReadableState = true;
+        sawReadableState = true;
+        const now = Date.now();
         const playerState = String(state?.state || '').toLowerCase();
         const attrs = state?.attributes || {};
         const mediaId = String(attrs.media_content_id || attrs.media_content_url || '');
 
         if (playerState === 'paused') {
-          log('info', `[${this.definition.name}] External pause detected; auto-resume suppressed.`);
-          return false;
+          log('info', `[${this.definition.name}] External pause detected; YouTube auto-resume suppressed.`);
+          return 'manual_stop';
         }
 
         if (playerState === 'idle' || playerState === 'off' || playerState === 'standby') {
-          sawIdleOrOff = true;
+          if (externalSince !== null) {
+            // A different item played and then disappeared: notification / announcement.
+            return 'transient_external';
+          }
+          if (idleSince === null) idleSince = now;
+          if (now >= manualDeadline && now - idleSince >= Math.max(100, manualStopDelayMs)) {
+            return 'manual_stop';
+          }
+        } else {
+          idleSince = null;
         }
 
         if (playerState === 'playing' || playerState === 'buffering') {
           const stillOurStream = mediaId.includes(expectedPath);
-          if (!stillOurStream) {
-            log('debug', `[${this.definition.name}] Another media item became active during interruption.`, mediaId || playerState);
-            return true;
+          if (stillOurStream) {
+            // HA/integration may have restored the old URL after a short announcement.
+            // Replace it with a fresh URL at the exact interrupted position.
+            if (externalSince !== null || now >= manualDeadline) return 'transient_external';
+          } else {
+            if (externalSince === null || mediaId !== externalMediaId) {
+              externalSince = now;
+              externalMediaId = mediaId;
+              log('debug', `[${this.definition.name}] Different media owns the player during YouTube interruption.`, mediaId || playerState);
+            }
+            // Do NOT steal the player back immediately. A persistent different item
+            // is an intentional source change (for example YTM -> Radio).
+            if (now - externalSince >= EXTERNAL_MEDIA_TAKEOVER_MS) {
+              return 'external_takeover';
+            }
           }
         }
       } catch (error) {
         log('debug', `[${this.definition.name}] Could not inspect player state after stream close.`, error?.message || String(error));
       }
 
-      const remainingMs = deadline - Date.now();
-      if (remainingMs <= 0) break;
-      await sleep(Math.min(50, remainingMs));
+      // If HA cannot be read at all, preserve recovery behaviour after the normal
+      // interruption debounce instead of leaving YouTube dead forever.
+      if (!sawReadableState && Date.now() >= manualDeadline) return 'transient_external';
+      await sleep(75);
     }
 
-    // If HA consistently reports idle/off throughout the debounce window, treat
-    // the stream closure as an intentional Stop from the individual player UI.
-    if (gotReadableState && sawIdleOrOff) return false;
+    if (externalSince !== null) return 'external_takeover';
+    if (sawReadableState) return 'manual_stop';
+    return 'transient_external';
+  }
 
-    // If HA state could not be read, preserve the previous behaviour: recover the
-    // current track instead of allowing a short interruption to advance the queue.
-    return true;
+  abandonForExternalTakeover(context) {
+    if (this.interruptionContext !== context || context.generation !== this.playGeneration) return;
+
+    this.playGeneration += 1;
+    this.clearEndTimer();
+    this.clearInterruptResumeTimer();
+    killActiveAudio(this.definition.key);
+    this.interruptionContext = null;
+    this.currentStream = null;
+    this.currentVideo = null;
+    this.currentVideoId = null;
+    this.title = null;
+    this.duration = 0;
+    this.basePosition = 0;
+    this.startedAt = null;
+    this.paused = false;
+
+    // The user intentionally moved this HA player to another source. Do not send
+    // media_stop and do not re-add an individual hub to the group, because either
+    // action would disturb the newly selected source. The next YouTube session
+    // must capture group membership from scratch.
+    this.groupMembershipCaptured = false;
+    this.wasInGroupBeforeYoutube = false;
+    log('info', `[${this.definition.name}] Persistent external source detected; YouTube released the HA player without stopping the new source.`);
   }
 
   handleStreamInterrupted(serial, videoId, reason) {
@@ -697,41 +797,76 @@ class M1SPlayer extends Player {
     if (!this.currentStream || this.currentStream.serial !== serial || this.currentStream.videoId !== videoId) return;
     if (this.paused || this.startedAt === null || !this.currentVideo) return;
 
-    const position = this.currentPosition();
-    const remaining = Number(this.duration) - position;
-    if (Number.isFinite(remaining) && remaining <= 2) {
-      log('debug', `[${this.definition.name}] Stream closed near track end; letting queue transition handle it.`);
+    if (this.senderIsGone()) {
+      log('info', `[${this.definition.name}] Stream closed after sender disconnect; auto-resume suppressed and playback stopped.`);
+      void this.stop().catch((error) => {
+        log('error', `[${this.definition.name}] Stop after disconnected stream failed.`, error?.message || String(error));
+      });
       return;
     }
 
+    // A client-side close is not a natural end: the yt-dlp child has not finished.
+    // Therefore even if only a second remains, a notification must resume THIS
+    // track instead of being misclassified as end-of-track / queue-next.
+    const interruptedPosition = this.currentPosition();
+    const interruptedVideo = this.currentVideo;
+
     this.playGeneration += 1;
     const generation = this.playGeneration;
-    this.basePosition = position;
+    const context = {
+      generation,
+      serial,
+      videoId,
+      video: interruptedVideo,
+      position: interruptedPosition,
+      interruptedAt: Date.now()
+    };
+
+    this.basePosition = interruptedPosition;
     this.startedAt = null;
     this.paused = true;
     this.currentStream = null;
+    this.interruptionContext = context;
     this.clearEndTimer();
     this.clearInterruptResumeTimer();
 
     const delayMs = Math.min(Math.max(0, cfg.resumeInterruptedDelayMs), 10000);
-    log('warn', `[${this.definition.name}] Stream closed; checking for manual Stop versus short external interruption.`, reason);
+    log('warn', `[${this.definition.name}] Stream closed; classifying Stop / notification / persistent source change.`, reason);
 
     this.interruptResumeTimer = setTimeout(() => {
       this.interruptResumeTimer = null;
       void (async () => {
-        const externalInterruption = await this.interruptionWasExternal(generation, serial, videoId, delayMs);
-        if (generation !== this.playGeneration || externalInterruption === null || !this.currentVideo || this.currentVideoId !== videoId) return;
+        const classification = await this.classifyInterruption(context, delayMs);
+        if (generation !== this.playGeneration || this.interruptionContext !== context || classification === null) return;
 
-        if (!externalInterruption) {
-          log('info', `[${this.definition.name}] Manual Stop detected; YouTube stream will remain stopped.`);
+        if (classification === 'sender_gone' || this.senderIsGone()) {
+          this.interruptionContext = null;
+          log('info', `[${this.definition.name}] Sender disappeared during interruption; stopping instead of resuming.`);
           await this.stop();
           return;
         }
 
-        const resumePosition = Math.max(0, this.basePosition + delayMs / 1000);
-        log('warn', `[${this.definition.name}] Short external interruption detected; resuming current track.`);
+        if (classification === 'manual_stop') {
+          this.interruptionContext = null;
+          log('info', `[${this.definition.name}] Manual Stop/Pause detected; YouTube remains stopped.`);
+          await this.stop();
+          return;
+        }
+
+        if (classification === 'external_takeover') {
+          this.abandonForExternalTakeover(context);
+          return;
+        }
+
+        // Short notification / announcement: always resume the exact video that
+        // was interrupted, at the exact captured position. Never consult/advance
+        // the queue as part of interruption recovery.
+        const resumeVideo = context.video;
+        const resumePosition = Math.max(0, Number(context.position) || 0);
+        this.interruptionContext = null;
+        log('warn', `[${this.definition.name}] Short external interruption ended; resuming the same track.`);
         log('info', `[${this.definition.name}] Resume interrupted track at ~${resumePosition.toFixed(1)}s`);
-        void this.startAt(this.currentVideo, resumePosition);
+        void this.startAt(resumeVideo, resumePosition);
       })();
     }, 0);
   }
@@ -758,6 +893,7 @@ class M1SPlayer extends Player {
 
     this.playGeneration += 1;
     const generation = this.playGeneration;
+    this.interruptionContext = null;
     this.currentVideo = video;
     this.currentVideoId = id;
     this.title = String(video?.title || `YouTube ${id}`);
@@ -821,6 +957,7 @@ class M1SPlayer extends Player {
   }
 
   async doPause() {
+    this.interruptionContext = null;
     this.basePosition = this.currentPosition();
     this.startedAt = null;
     this.paused = true;
@@ -844,6 +981,7 @@ class M1SPlayer extends Player {
 
   async doStop() {
     this.playGeneration += 1;
+    this.interruptionContext = null;
     this.basePosition = 0;
     this.startedAt = null;
     this.paused = false;
@@ -869,6 +1007,7 @@ class M1SPlayer extends Player {
 
   async doSeek(position) {
     if (!this.currentVideo) return false;
+    this.interruptionContext = null;
     this.basePosition = Math.max(0, Number(position) || 0);
     this.clearEndTimer();
     this.clearInterruptResumeTimer();
@@ -994,6 +1133,8 @@ try {
       logLevel: cfg.logLevel
     });
 
+    player.setSenderCountProvider(() => receiver.getConnectedSenders().length);
+
     let senderDisconnectStopTimer = null;
     const clearSenderDisconnectStopTimer = () => {
       if (senderDisconnectStopTimer) {
@@ -1004,11 +1145,14 @@ try {
 
     receiver.on('senderConnect', (sender) => {
       clearSenderDisconnectStopTimer();
-      log('info', `[${def.name}] Sender connected: ${sender?.name || 'unknown'}`);
+      const connected = Math.max(1, receiver.getConnectedSenders().length);
+      player.setConnectedSenderCount(connected);
+      log('info', `[${def.name}] Sender connected: ${sender?.name || 'unknown'} connected=${connected}`);
     });
     receiver.on('senderDisconnect', (sender, implicit) => {
       const isImplicit = Boolean(implicit);
       const remaining = receiver.getConnectedSenders().length;
+      player.setConnectedSenderCount(remaining);
       log('info', `[${def.name}] Sender disconnected: ${sender?.name || 'unknown'} implicit=${isImplicit} remaining=${remaining}`);
 
       // yt-cast-receiver already resets the player for an explicit "Stop Casting"
