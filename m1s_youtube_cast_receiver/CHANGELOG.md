@@ -1,3 +1,8 @@
+## 0.3.26 - YT/YTM end grace 7 seconds
+
+- Changes only the YT/YTM end-of-track safety grace from +5.5 s to +7 s.
+- No other playback, ownership, group restore, mapping, Radio, seek, STOP/PLAY settle, or add-on option is changed.
+
 ## 0.3.25 - YT/YTM end grace 5.5 seconds
 
 - Based strictly on v0.3.24; the 500 ms group STOP settle, ownership guard, mapping, queue handling and individual group restore logic are unchanged.
