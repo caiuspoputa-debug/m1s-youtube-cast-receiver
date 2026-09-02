@@ -1,3 +1,12 @@
+## 0.3.12
+
+- Replaces mid-track notification/interruption recovery with a simple track-boundary policy.
+- Hub notification sounds and member detach/rejoin are ignored by the add-on and remain the M1S integration's responsibility.
+- The current YouTube/YTM track keeps one wall-clock timeline; if HA requests the same audio URL again after a reconnect, it resumes from the current track position instead of restarting from the beginning.
+- An implicit sender disconnect no longer stops the current track immediately. At the real track boundary: sender connected -> request next item; no sender -> Stop.
+- A persistent different HA source such as Radio is checked only at the track boundary and is never overwritten by the next YouTube item.
+- Explicit Cast Stop, individual group remove/restore, metadata/title handling and volume/seek controls are preserved.
+
 ## 0.3.11
 
 - Distinguishes a short notification/announcement from a persistent Home Assistant source takeover.
