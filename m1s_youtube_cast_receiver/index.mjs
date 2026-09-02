@@ -507,7 +507,7 @@ class M1SPlayer extends Player {
       return;
     }
 
-    const delayMs = Math.min(Math.max(remaining + 1.5, 2), 24 * 60 * 60) * 1000;
+    const delayMs = Math.min(Math.max(remaining + 4.0, 2), 24 * 60 * 60) * 1000;
     this.endTimer = setTimeout(() => void this.handlePlaybackEnded(generation), delayMs);
     log('debug', `[${this.definition.name}] Next-item transition scheduled in ~${(delayMs / 1000).toFixed(1)}s`);
   }
@@ -523,7 +523,11 @@ class M1SPlayer extends Player {
     log('info', `[${this.definition.name}] Playback finished: ${endedVideoId}; requesting next queue item.`);
 
     try {
-      await this.pause();
+      const stoppedCleanly = await this.pause();
+      if (!stoppedCleanly) {
+        log('error', `[${this.definition.name}] Track boundary STOP failed; refusing to advance queue over an active old source.`);
+        return;
+      }
       const advanced = await this.next();
       if (!advanced) {
         log('info', `[${this.definition.name}] Queue/autoplay had no next item; stopping.`);
@@ -554,12 +558,10 @@ class M1SPlayer extends Player {
   }
 
   handleStreamInterrupted(serial, videoId, reason) {
-    // v0.3.13 stability mode: never try to guess why the HTTP audio client closed.
-    // In particular, do not auto-resume/restart YouTube after notifications,
-    // source switches, Home Assistant teardown, or transient client disconnects.
-    // Queue/autoplay advancement remains driven only by the normal track timer.
+    // Stability mode: never infer a notification or transport failure here.
+    // The current queue item is not restarted and the queue is not advanced.
     if (!this.currentStream || this.currentStream.serial !== serial || this.currentStream.videoId !== videoId) return;
-    log('debug', `[${this.definition.name}] Audio client closed; interruption auto-resume intentionally disabled.`, reason);
+    log('debug', `[${this.definition.name}] Audio client closed; interruption recovery disabled.`, reason);
     this.currentStream = null;
   }
 
@@ -590,7 +592,7 @@ class M1SPlayer extends Player {
     this.title = String(video?.title || `YouTube ${id}`);
     this.duration = Number(video?.duration || 0) || 0;
     this.basePosition = Math.max(0, Number(position) || 0);
-    this.startedAt = Date.now();
+    this.startedAt = null;
     this.paused = false;
     this.clearEndTimer();
     this.clearInterruptResumeTimer();
@@ -613,6 +615,10 @@ class M1SPlayer extends Player {
           stream_serial: stream.serial
         }
       });
+
+      // Start the logical track clock only after Home Assistant accepted Play.
+      // This deliberately biases the boundary late rather than cutting audio early.
+      if (generation === this.playGeneration) this.startedAt = Date.now();
 
       // Metadata is deliberately delayed and fetched in the background so it does
       // not compete with the first audio extraction during startup.
@@ -640,14 +646,20 @@ class M1SPlayer extends Player {
     this.clearEndTimer();
     this.clearInterruptResumeTimer();
     killActiveAudio(this.definition.key);
-    try {
-      await haService(this.definition.entityId, 'media_stop');
-      log('info', `[${this.definition.name}] Paused at ~${this.basePosition.toFixed(1)}s`);
-      return true;
-    } catch (error) {
-      log('error', `[${this.definition.name}] Pause/stop failed.`, error.message);
-      return false;
+    let lastError = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        await haService(this.definition.entityId, 'media_stop');
+        log('info', `[${this.definition.name}] Paused at ~${this.basePosition.toFixed(1)}s`);
+        return true;
+      } catch (error) {
+        lastError = error;
+        log(attempt < 3 ? 'warn' : 'error', `[${this.definition.name}] Pause/stop attempt ${attempt}/3 failed.`, error.message);
+        if (attempt < 3) await sleep(350 * attempt);
+      }
     }
+    log('error', `[${this.definition.name}] Pause/stop failed after retries.`, lastError?.message || 'unknown error');
+    return false;
   }
 
   async doResume() {

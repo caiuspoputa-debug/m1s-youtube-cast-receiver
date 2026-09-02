@@ -1,12 +1,12 @@
 # Changelog
 
-## 0.3.13
+## 0.3.14
 
-- Rebased on the stable fixed-mapping v0.3.5 implementation.
-- Disabled stream-interruption auto-resume completely; an HTTP client close no longer restarts the current YouTube/YouTube Music item.
-- Keeps local queue/autoplay behaviour and implicit sender-disconnect persistence, so an already loaded queue can continue without the phone.
-- Keeps the exact receiver-to-hub mapping and 300 ms individual group-removal behaviour from v0.3.5.
-- No notification detection, manual-stop inference, sender watchdog, or track-boundary recovery was added.
+- Rebased directly on v0.3.5 fixed receiver mapping and local queue/autoplay behaviour.
+- Disabled interruption auto-resume completely; HTTP/client closes never restart the current item.
+- Track-boundary queue advance now requires a successful Home Assistant media_stop; transient 502 errors are retried up to three times and next is not issued over an active old source.
+- The logical track clock starts only after Home Assistant accepts play_media, and the end boundary includes a conservative downstream drain margin to avoid cutting buffered group audio early.
+- No sender watchdog, wall-clock same-URL recovery, notification detection, or track-boundary sender policy from later experimental builds is included.
 
 ## 0.3.5
 
