@@ -1,21 +1,13 @@
 # Changelog
 
-## 0.3.4
+## 0.3.5
 
-- Fixed automatic group removal being skipped when Home Assistant did not report the include switch as strictly `on`.
-- Individual playback now sends `switch.turn_off` unconditionally; the operation is idempotent when the switch is already off.
-- Added per-playback fallback resolution: use the discovered switch, try the exact derived `*_include_in_m1s_media_group` entity id, then rediscover from Home Assistant if needed.
-- Kept the default group-removal delay at 300 ms.
-
-## 0.3.3
-
-- Added automatic removal from the M1S media group before playback on an individual
-  YouTube / YouTube Music Cast receiver.
-- The add-on now tries to find the matching `*_include_in_m1s_media_group` switch for
-  each discovered individual media player.
-- If the switch is on, the add-on turns it off and waits 300 ms before sending
-  `media_player.play_media` to the individual player.
-- Added `auto_remove_individual_from_group` and `auto_remove_group_delay_ms`.
+- Based directly on the last correctly mapped build, 0.3.3.
+- Keeps each Cast receiver bound to the exact individual M1S media player and group switch
+  discovered at startup; no fallback remapping and no runtime mutation of the receiver definition.
+- Before individual playback, sends `switch.turn_off` directly to the already mapped
+  `*_include_in_m1s_media_group` switch, then waits 300 ms.
+- Does not depend on the switch reporting `on`, avoiding stale Home Assistant state checks.
 
 ## 0.3.2
 

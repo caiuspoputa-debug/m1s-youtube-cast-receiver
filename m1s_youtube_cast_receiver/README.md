@@ -3,14 +3,7 @@
 Home Assistant app/add-on that exposes the Aqara M1S Media Group and the individual
 Aqara M1S media players as YouTube / YouTube Music DIAL receivers.
 
-## v0.3.4
-
-- Group removal before individual playback no longer depends on the switch state being reported as `on`.
-- The add-on now sends `switch.turn_off` directly; the call is safe even if the switch is already off.
-- If the switch was not associated during startup, the add-on derives the expected entity id and, on failure, rediscovers the matching switch from Home Assistant before playback.
-- The 300 ms post-removal delay remains configurable with `auto_remove_group_delay_ms`.
-
-## v0.3.3
+## v0.3.5
 
 - When you cast to an individual M1S that is currently included in the M1S media group,
   the add-on can remove it from the group automatically before playback starts.

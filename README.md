@@ -2,11 +2,7 @@
 
 Home Assistant repository for the **M1S YouTube Cast Receiver** app/add-on.
 
-v0.3.4 makes individual playback group-removal robust: it sends an unconditional, idempotent
-`turn_off` to the matching include switch, derives the expected switch name if needed, and
-rediscovers it from Home Assistant as a fallback.
-
-v0.3.3 adds automatic removal from the M1S media group when casting directly to an
+v0.3.5 adds automatic removal from the M1S media group when casting directly to an
 individual M1S receiver.
 
 v0.3.2 fixes short external notification interruptions so they resume the current
