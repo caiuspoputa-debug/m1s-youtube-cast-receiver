@@ -508,6 +508,7 @@ class M1SPlayer extends Player {
     this.completionTask = null;
     this.endTransitionRunning = false;
     this.currentStream = null;
+    this.groupBoundaryPreStopped = false;
   }
 
   currentPosition() {
@@ -516,8 +517,6 @@ class M1SPlayer extends Player {
   }
 
   clearEndTimer() {
-    // v0.3.16: duration-based end timers are intentionally disabled.
-    // Track completion is detected from the Home Assistant finite-media state.
     if (this.endTimer) {
       clearTimeout(this.endTimer);
       this.endTimer = null;
@@ -634,9 +633,69 @@ class M1SPlayer extends Player {
   }
 
   scheduleEndTransition(generation) {
-    // Kept as a compatibility no-op. v0.3.16 never advances by metadata duration.
     this.clearEndTimer();
-    if (generation === this.playGeneration) this.startCompletionMonitor(generation);
+    if (generation !== this.playGeneration) return;
+    this.startCompletionMonitor(generation);
+    if (
+      !this.definition.isGroup
+      || this.paused
+      || this.startedAt === null
+      || !(this.duration > 0)
+    ) return;
+
+    const remainingSeconds = Math.max(0, this.duration - this.currentPosition());
+    const delayMs = Math.max(250, Math.round((remainingSeconds + 0.75) * 1000));
+    this.endTimer = setTimeout(() => {
+      this.endTimer = null;
+      void this.handleGroupDurationBoundary(generation);
+    }, delayMs);
+    log('debug', `[${this.definition.name}] Group end guard armed in ${(delayMs / 1000).toFixed(2)}s.`);
+  }
+
+  async handleGroupDurationBoundary(generation) {
+    if (
+      generation !== this.playGeneration
+      || !this.definition.isGroup
+      || this.paused
+      || this.startedAt === null
+      || this.endTransitionRunning
+    ) return;
+
+    const expectedPath = this.expectedStreamPath();
+    if (!expectedPath) return;
+    try {
+      const snapshot = await this.readTargetPlaybackState();
+      const active = snapshot.state === 'playing' || snapshot.state === 'buffering';
+      const isOurSource = Boolean(snapshot.mediaId && snapshot.mediaId.includes(expectedPath));
+      if (!active || !isOurSource) return;
+
+      this.cancelCompletionMonitor();
+      let stopped = false;
+      let lastError = null;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          await haService(this.definition.entityId, 'media_stop');
+          stopped = await this.waitUntilTargetStopped(expectedPath, 2200);
+          if (stopped) break;
+          throw new Error('group remained active after duration boundary STOP');
+        } catch (error) {
+          lastError = error;
+          if (attempt < 3) await sleep(180 * attempt);
+        }
+      }
+      if (!stopped) {
+        log('error', `[${this.definition.name}] Group end guard could not stop the finished track.`, lastError?.message || 'unknown error');
+        return;
+      }
+
+      killActiveAudio(this.definition.key);
+      this.currentStream = null;
+      this.groupBoundaryPreStopped = true;
+      log('info', `[${this.definition.name}] Group duration boundary reached; transport stopped cleanly.`);
+      await this.handlePlaybackEnded(generation);
+    } catch (error) {
+      log('error', `[${this.definition.name}] Group end guard failed.`, error?.message || String(error));
+    }
   }
 
   async handlePlaybackEnded(generation) {
@@ -660,9 +719,11 @@ class M1SPlayer extends Player {
         log('info', `[${this.definition.name}] Queue/autoplay had no next item; stopping.`);
         await this.stop();
       } else if (this.currentVideoId === endedVideoId) {
+        this.groupBoundaryPreStopped = false;
         log('warn', `[${this.definition.name}] Queue selected the same video again; leaving sender state unchanged.`);
       }
     } catch (error) {
+      this.groupBoundaryPreStopped = false;
       log('error', `[${this.definition.name}] Next-item transition failed.`, error?.message || String(error));
     } finally {
       this.endTransitionRunning = false;
@@ -686,6 +747,10 @@ class M1SPlayer extends Player {
 
   async ensureGroupCleanStart() {
     if (!this.definition.isGroup) return true;
+    if (this.groupBoundaryPreStopped) {
+      this.groupBoundaryPreStopped = false;
+      return true;
+    }
 
     // Mirror the manual sequence that is known to synchronize the hubs:
     // HA STOP first while the old HTTP stream still exists, wait for HA to
@@ -727,6 +792,7 @@ class M1SPlayer extends Player {
       this.title = metadata?.title || this.title;
       this.duration = Number(metadata?.duration || 0) || this.duration;
       log('debug', `[${this.definition.name}] Metadata ready: ${this.title}`, this.duration ? `${this.duration.toFixed(1)}s` : '');
+      this.scheduleEndTransition(generation);
     } catch (error) {
       log('debug', `[${this.definition.name}] Metadata lookup failed for ${videoId}.`, error.message);
     }
@@ -799,7 +865,7 @@ class M1SPlayer extends Player {
       // Metadata is deliberately delayed and fetched in the background so it does
       // not compete with the first audio extraction during startup.
       setTimeout(() => void this.enrichMetadata(id, generation), 750);
-      this.startCompletionMonitor(generation);
+      this.scheduleEndTransition(generation);
       return true;
     } catch (error) {
       log('error', `[${this.definition.name}] Home Assistant play_media failed.`, error.message);
@@ -855,6 +921,7 @@ class M1SPlayer extends Player {
     this.clearEndTimer();
     this.clearInterruptResumeTimer();
     this.cancelCompletionMonitor();
+    this.groupBoundaryPreStopped = false;
     try {
       await haService(this.definition.entityId, 'media_stop');
       await this.waitUntilTargetStopped(expectedPath);

@@ -1,3 +1,12 @@
+## 0.3.22 - Deterministic group end guard
+
+- Rebased on the byte-stable 0.3.18/0.3.21 runtime; direct yt-dlp audio remains unchanged.
+- Keeps state-based natural EOF as the primary completion path.
+- Adds a group-only duration guard at the real track duration plus 750 ms.
+- The guard advances only while Home Assistant still reports the exact active YouTube stream, preventing unrelated sources from being reclaimed.
+- Stops the group before queue advance so a missing group IDLE transition cannot leave aplay repeating the final fragment.
+- Individual playback, buffers, PCM pacing, synchronization and resync are unchanged.
+
 ## 0.3.21 - Rollback to stable 0.3.18 runtime
 
 - Runtime, DIAL discovery, queue handling and direct yt-dlp audio path are byte-identical to 0.3.18.
