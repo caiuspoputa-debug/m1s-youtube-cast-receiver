@@ -302,6 +302,39 @@ class JsonDataStore {
 }
 
 const metadataCache = new Map();
+const quickTitleCache = new Map();
+
+async function getQuickYouTubeTitle(videoId, timeoutMs = 1200) {
+  const cached = quickTitleCache.get(videoId);
+  if (cached) return cached;
+
+  const promise = (async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Math.max(100, timeoutMs));
+    try {
+      const watchUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
+      const endpoint = `https://www.youtube.com/oembed?url=${encodeURIComponent(watchUrl)}&format=json`;
+      const response = await fetch(endpoint, { signal: controller.signal });
+      if (!response.ok) throw new Error(`YouTube oEmbed -> ${response.status}`);
+      const data = await response.json();
+      const title = typeof data?.title === 'string' ? data.title.trim() : '';
+      if (!title) throw new Error('YouTube oEmbed returned no title');
+      return title;
+    } finally {
+      clearTimeout(timer);
+    }
+  })();
+
+  quickTitleCache.set(videoId, promise);
+  try {
+    const title = await promise;
+    quickTitleCache.set(videoId, Promise.resolve(title));
+    return title;
+  } catch (error) {
+    quickTitleCache.delete(videoId);
+    throw error;
+  }
+}
 
 function runYtDlpJson(videoId) {
   return new Promise((resolve, reject) => {
@@ -557,6 +590,29 @@ class M1SPlayer extends Player {
     }
   }
 
+  async ensureGroupCleanStart() {
+    if (!this.definition.isGroup) return true;
+
+    // Manual STOP -> PLAY is known to start the M1S cohort in sync. Reproduce that
+    // exact clean boundary automatically before a new YouTube/YTM group play.
+    killActiveAudio(this.definition.key);
+    let lastError = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        await haService(this.definition.entityId, 'media_stop');
+        await sleep(300);
+        log('debug', `[${this.definition.name}] Clean group STOP completed before Play.`);
+        return true;
+      } catch (error) {
+        lastError = error;
+        log(attempt < 3 ? 'warn' : 'error', `[${this.definition.name}] Pre-Play group STOP attempt ${attempt}/3 failed.`, error?.message || String(error));
+        if (attempt < 3) await sleep(350 * attempt);
+      }
+    }
+    log('error', `[${this.definition.name}] Refusing group Play without a clean STOP boundary.`, lastError?.message || 'unknown error');
+    return false;
+  }
+
   handleStreamInterrupted(serial, videoId, reason) {
     // Stability mode: never infer a notification or transport failure here.
     // The current queue item is not restarted and the queue is not advanced.
@@ -591,6 +647,20 @@ class M1SPlayer extends Player {
     this.currentVideoId = id;
     this.title = String(video?.title || `YouTube ${id}`);
     this.duration = Number(video?.duration || 0) || 0;
+
+    // Resolve a real title before the single HA play_media call when the sender
+    // only supplies a video id. This is the lightweight title fix from v0.3.9.
+    if (!video?.title || this.title === `YouTube ${id}`) {
+      try {
+        const quickTitle = await getQuickYouTubeTitle(id);
+        if (generation !== this.playGeneration || id !== this.currentVideoId) return false;
+        this.title = quickTitle || this.title;
+        log('debug', `[${this.definition.name}] Quick title ready: ${this.title}`);
+      } catch (error) {
+        log('debug', `[${this.definition.name}] Quick title lookup failed for ${id}; using fallback title.`, error?.message || String(error));
+      }
+    }
+
     this.basePosition = Math.max(0, Number(position) || 0);
     this.startedAt = null;
     this.paused = false;
@@ -598,6 +668,13 @@ class M1SPlayer extends Player {
     this.clearInterruptResumeTimer();
 
     await this.ensureIndividualReadyForPlayback();
+    if (!(await this.ensureGroupCleanStart())) {
+      this.startedAt = null;
+      this.currentStream = null;
+      this.clearEndTimer();
+      this.clearInterruptResumeTimer();
+      return false;
+    }
 
     const stream = audioUrl(this.definition.key, id, this.basePosition);
     this.currentStream = { serial: stream.serial, videoId: id };

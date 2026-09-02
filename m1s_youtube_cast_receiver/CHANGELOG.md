@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.15
+
+- Based strictly on v0.3.14 local-queue-clean behavior; no interruption auto-resume, sender watchdog, notification detection, or same-track timeline logic was reintroduced.
+- Group YT/YTM playback now performs a clean Home Assistant media_stop (with short retry and 300 ms settle) before each new group play, reproducing the manually verified STOP -> PLAY sequence that starts the M1S hubs in sync.
+- Restored the lightweight YouTube oEmbed title lookup from v0.3.9 before the single play_media call, so Home Assistant receives the real track title instead of `YouTube <video_id>` when the sender omits metadata.
+
 ## 0.3.14
 
 - Rebased directly on v0.3.5 fixed receiver mapping and local queue/autoplay behaviour.
