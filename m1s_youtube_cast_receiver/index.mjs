@@ -698,15 +698,15 @@ class M1SPlayer extends Player {
 
     // YT/YTM-only safety boundary. Normal HA EOF remains authoritative and can
     // advance earlier; this timer exists only for a track that stays active
-    // past its advertised duration. Give the downstream transport 10 seconds
-    // to finish naturally before forcing the clean end transition.
+    // past its advertised duration. Use zero extra grace: if the exact YT/YTM
+    // source is still active at its advertised duration, force the clean end transition.
     const remainingSeconds = Math.max(0, this.duration - this.currentPosition());
-    const delayMs = Math.max(250, Math.round((remainingSeconds + 10) * 1000));
+    const delayMs = Math.max(250, Math.round((remainingSeconds + 0) * 1000));
     this.endTimer = setTimeout(() => {
       this.endTimer = null;
       void this.handleGroupDurationBoundary(generation);
     }, delayMs);
-    log('debug', `[${this.definition.name}] YT/YTM end guard armed in ${(delayMs / 1000).toFixed(2)}s (+10s grace).`);
+    log('debug', `[${this.definition.name}] YT/YTM end guard armed in ${(delayMs / 1000).toFixed(2)}s (+0s grace).`);
   }
 
   async handleGroupDurationBoundary(generation) {
@@ -730,7 +730,7 @@ class M1SPlayer extends Player {
       // The group keeps its established clean transport STOP boundary below.
       if (!this.definition.isGroup) {
         this.cancelCompletionMonitor();
-        log('info', `[${this.definition.name}] YT/YTM duration +10s safety boundary reached; requesting next queue item.`);
+        log('info', `[${this.definition.name}] YT/YTM duration +0s safety boundary reached; requesting next queue item.`);
         await this.handlePlaybackEnded(generation);
         return;
       }
