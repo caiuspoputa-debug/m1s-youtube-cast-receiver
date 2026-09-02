@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.3
+
+- Added automatic removal from the M1S media group before playback on an individual
+  YouTube / YouTube Music Cast receiver.
+- The add-on now tries to find the matching `*_include_in_m1s_media_group` switch for
+  each discovered individual media player.
+- If the switch is on, the add-on turns it off and waits 300 ms before sending
+  `media_player.play_media` to the individual player.
+- Added `auto_remove_individual_from_group` and `auto_remove_group_delay_ms`.
+
+## 0.3.2
+
+- Fixed short external audio interruptions, such as phone/mail notification sounds routed
+  through the same Aqara M1S target, being treated as the end of the YouTube Music track.
+- When the active HTTP stream is closed before the track is near its natural end, the
+  add-on now resumes the same track instead of advancing to the next queue item.
+- Added `resume_interrupted_stream` and `resume_interrupted_delay_ms`; the default resume
+  delay is 300 ms so brief notification sounds do not create a long silence.
+- Removed `stage: experimental` from the Home Assistant add-on manifest.
+
 ## 0.3.1
 
 - Fixed Home Assistant image build failure by pinning `yt-cast-receiver` back to

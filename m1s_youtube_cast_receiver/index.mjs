@@ -20,6 +20,10 @@ function readOptions() {
     includeIndividual: raw.include_individual !== false,
     individualMatch: String(raw.individual_match || 'aqara_m1s_zigbee_router').toLowerCase(),
     maxReceivers: Math.max(1, Number(raw.max_receivers || 16)),
+    resumeInterruptedStream: raw.resume_interrupted_stream !== false,
+    resumeInterruptedDelayMs: Math.max(0, Number(raw.resume_interrupted_delay_ms ?? 300)),
+    autoRemoveIndividualFromGroup: raw.auto_remove_individual_from_group !== false,
+    autoRemoveGroupDelayMs: Math.max(0, Number(raw.auto_remove_group_delay_ms ?? 300)),
     logLevel: String(raw.log_level || 'info')
   };
 }
@@ -72,11 +76,23 @@ async function haRequest(apiPath, { method = 'GET', body } = {}) {
   return type.includes('application/json') ? response.json() : response.text();
 }
 
-async function haService(targetEntity, service, data = {}) {
-  return haRequest(`/services/media_player/${service}`, {
+async function haDomainService(domain, service, data = {}) {
+  return haRequest(`/services/${domain}/${service}`, {
     method: 'POST',
-    body: { entity_id: targetEntity, ...data }
+    body: data
   });
+}
+
+async function haService(targetEntity, service, data = {}) {
+  return haDomainService('media_player', service, { entity_id: targetEntity, ...data });
+}
+
+async function switchTurnOff(entityId) {
+  return haDomainService('switch', 'turn_off', { entity_id: entityId });
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
 }
 
 function safeVideoId(value) {
@@ -118,6 +134,74 @@ function receiverNameFromState(state) {
 
   const pretty = titleCase(value) || String(state?.entity_id || 'M1S');
   return /^m1s\b/i.test(pretty) ? pretty : `M1S ${pretty}`;
+}
+
+const INCLUDE_SWITCH_SUFFIX = '_include_in_m1s_media_group';
+const GENERIC_ENTITY_TOKENS = new Set([
+  'aqara', 'm1s', 'zigbee', 'router', 'media', 'player', 'radio',
+  'include', 'in', 'group', 'si', 'de'
+]);
+
+function mediaBaseFromEntityId(entityId) {
+  return String(entityId || '')
+    .toLowerCase()
+    .replace(/^media_player\./, '')
+    .replace(/_(media_player|radio)$/i, '');
+}
+
+function includeSwitchBaseFromEntityId(entityId) {
+  return String(entityId || '')
+    .toLowerCase()
+    .replace(/^switch\./, '')
+    .replace(new RegExp(`${INCLUDE_SWITCH_SUFFIX}$`, 'i'), '');
+}
+
+function meaningfulEntityTokens(value) {
+  return String(value || '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length > 1 && !GENERIC_ENTITY_TOKENS.has(token));
+}
+
+function scoreIncludeSwitch(mediaBase, switchBase) {
+  if (!mediaBase || !switchBase) return 0;
+  if (switchBase === mediaBase) return 1000;
+  if (switchBase.includes(mediaBase) || mediaBase.includes(switchBase)) return 500;
+
+  const mediaTokens = meaningfulEntityTokens(mediaBase);
+  const switchTokens = new Set(meaningfulEntityTokens(switchBase));
+  let score = 0;
+  for (const token of mediaTokens) {
+    if (switchTokens.has(token)) score += 10;
+  }
+  return score;
+}
+
+function findIncludeSwitchForMediaPlayer(mediaEntityId, states) {
+  const mediaBase = mediaBaseFromEntityId(mediaEntityId);
+  const expectedEntityId = `switch.${mediaBase}${INCLUDE_SWITCH_SUFFIX}`;
+  const switchStates = (Array.isArray(states) ? states : []).filter((state) => {
+    const entityId = String(state?.entity_id || '').toLowerCase();
+    return entityId.startsWith('switch.') && entityId.endsWith(INCLUDE_SWITCH_SUFFIX);
+  });
+
+  const exact = switchStates.find((state) => String(state.entity_id).toLowerCase() === expectedEntityId);
+  if (exact) return String(exact.entity_id);
+
+  const ranked = switchStates
+    .map((state) => ({
+      entityId: String(state.entity_id),
+      score: scoreIncludeSwitch(mediaBase, includeSwitchBaseFromEntityId(state.entity_id))
+    }))
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.entityId.localeCompare(b.entityId));
+
+  if (!ranked.length) return null;
+  if (ranked.length > 1 && ranked[0].score === ranked[1].score) {
+    log('debug', `Ambiguous include switch for ${mediaEntityId}; leaving auto-remove disabled for this receiver.`);
+    return null;
+  }
+  return ranked[0].entityId;
 }
 
 async function discoverReceiverDefinitions() {
@@ -164,7 +248,8 @@ async function discoverReceiverDefinitions() {
       entityId,
       name,
       port: cfg.dialPort + index,
-      isGroup: false
+      isGroup: false,
+      includeSwitchEntity: findIncludeSwitchForMediaPlayer(entityId, states)
     });
     index += 1;
   }
@@ -267,12 +352,17 @@ function getMetadata(videoId) {
 
 let streamSerial = 0;
 const activeAudioChildren = new Map();
+const runtimePlayersByKey = new Map();
 let receiverDefinitions = [];
 let receiverDefinitionsByKey = new Map();
 
 function audioUrl(receiverKey, videoId, position = 0) {
   streamSerial += 1;
-  return `http://${streamHost}:${cfg.audioPort}/audio/${encodeURIComponent(receiverKey)}/${encodeURIComponent(videoId)}/${streamSerial}?start=${Math.max(0, Number(position) || 0)}`;
+  const serial = streamSerial;
+  return {
+    serial,
+    url: `http://${streamHost}:${cfg.audioPort}/audio/${encodeURIComponent(receiverKey)}/${encodeURIComponent(videoId)}/${serial}?start=${Math.max(0, Number(position) || 0)}`
+  };
 }
 
 function killActiveAudio(receiverKey) {
@@ -301,7 +391,7 @@ const audioServer = http.createServer((req, res) => {
     return;
   }
 
-  const match = parsed.pathname.match(/^\/audio\/([A-Za-z0-9_-]{1,80})\/([A-Za-z0-9_-]{6,32})\/\d+$/);
+  const match = parsed.pathname.match(/^\/audio\/([A-Za-z0-9_-]{1,80})\/([A-Za-z0-9_-]{6,32})\/(\d+)$/);
   if (!match) {
     res.writeHead(404);
     res.end('Not found');
@@ -310,8 +400,9 @@ const audioServer = http.createServer((req, res) => {
 
   const receiverKey = safeKey(match[1]);
   const videoId = safeVideoId(match[2]);
+  const serial = Number(match[3]);
   const def = receiverDefinitionsByKey.get(receiverKey);
-  if (!def || !videoId) {
+  if (!def || !videoId || !Number.isSafeInteger(serial)) {
     res.writeHead(400);
     res.end('Invalid receiver or video id');
     return;
@@ -331,12 +422,15 @@ const audioServer = http.createServer((req, res) => {
 
   const child = spawn(YTDLP, args, { stdio: ['ignore', 'pipe', 'pipe'] });
   activeAudioChildren.set(receiverKey, child);
+  const player = runtimePlayersByKey.get(receiverKey);
   let stderr = '';
+  let childClosed = false;
 
   res.writeHead(200, {
     'Content-Type': 'application/octet-stream',
     'Cache-Control': 'no-store',
-    'Connection': 'close'
+    'Connection': 'close',
+    'X-M1S-YT-Stream-Serial': String(serial)
   });
 
   child.stdout.pipe(res);
@@ -348,6 +442,7 @@ const audioServer = http.createServer((req, res) => {
     if (!res.destroyed) res.destroy(error);
   });
   child.on('close', (code) => {
+    childClosed = true;
     if (activeAudioChildren.get(receiverKey) === child) activeAudioChildren.delete(receiverKey);
     if (code !== 0 && code !== null) {
       log('error', `[${def.name}] yt-dlp audio exited with code ${code}`, stderr.trim().slice(-1200));
@@ -357,7 +452,10 @@ const audioServer = http.createServer((req, res) => {
     if (!res.writableEnded) res.end();
   });
   res.on('close', () => {
-    if (!res.writableEnded && !child.killed) child.kill('SIGTERM');
+    if (!res.writableEnded && !childClosed) {
+      player?.handleStreamInterrupted(serial, videoId, 'audio client closed the stream');
+      if (!child.killed) child.kill('SIGTERM');
+    }
   });
 });
 
@@ -375,7 +473,9 @@ class M1SPlayer extends Player {
     this.volume = { level: 50, muted: false };
     this.playGeneration = 0;
     this.endTimer = null;
+    this.interruptResumeTimer = null;
     this.endTransitionRunning = false;
+    this.currentStream = null;
   }
 
   currentPosition() {
@@ -387,6 +487,13 @@ class M1SPlayer extends Player {
     if (this.endTimer) {
       clearTimeout(this.endTimer);
       this.endTimer = null;
+    }
+  }
+
+  clearInterruptResumeTimer() {
+    if (this.interruptResumeTimer) {
+      clearTimeout(this.interruptResumeTimer);
+      this.interruptResumeTimer = null;
     }
   }
 
@@ -411,6 +518,7 @@ class M1SPlayer extends Player {
 
     this.endTransitionRunning = true;
     this.clearEndTimer();
+    this.clearInterruptResumeTimer();
     const endedVideoId = this.currentVideoId;
     log('info', `[${this.definition.name}] Playback finished: ${endedVideoId}; requesting next queue item.`);
 
@@ -428,6 +536,54 @@ class M1SPlayer extends Player {
     } finally {
       this.endTransitionRunning = false;
     }
+  }
+
+  async ensureIndividualReadyForPlayback() {
+    if (!cfg.autoRemoveIndividualFromGroup || this.definition.isGroup || !this.definition.includeSwitchEntity) return;
+
+    const switchEntity = this.definition.includeSwitchEntity;
+    try {
+      const state = await haRequest(`/states/${encodeURIComponent(switchEntity)}`);
+      if (state?.state !== 'on') return;
+
+      log('info', `[${this.definition.name}] Removing individual player from M1S group before playback.`, switchEntity);
+      await switchTurnOff(switchEntity);
+      await sleep(cfg.autoRemoveGroupDelayMs);
+    } catch (error) {
+      log('warn', `[${this.definition.name}] Could not remove player from M1S group before playback.`, error?.message || String(error));
+    }
+  }
+
+  handleStreamInterrupted(serial, videoId, reason) {
+    if (!cfg.resumeInterruptedStream) return;
+    if (!this.currentStream || this.currentStream.serial !== serial || this.currentStream.videoId !== videoId) return;
+    if (this.paused || this.startedAt === null || !this.currentVideo) return;
+
+    const position = this.currentPosition();
+    const remaining = Number(this.duration) - position;
+    if (Number.isFinite(remaining) && remaining <= 2) {
+      log('debug', `[${this.definition.name}] Stream closed near track end; letting queue transition handle it.`);
+      return;
+    }
+
+    this.playGeneration += 1;
+    const generation = this.playGeneration;
+    this.basePosition = position;
+    this.startedAt = null;
+    this.paused = true;
+    this.currentStream = null;
+    this.clearEndTimer();
+    this.clearInterruptResumeTimer();
+
+    const delayMs = Math.min(Math.max(0, cfg.resumeInterruptedDelayMs), 10000);
+    log('warn', `[${this.definition.name}] Stream interrupted; resuming current track instead of advancing queue.`, reason);
+
+    this.interruptResumeTimer = setTimeout(() => {
+      if (generation !== this.playGeneration || !this.currentVideo || this.currentVideoId !== videoId) return;
+      const resumePosition = Math.max(0, this.basePosition + delayMs / 1000);
+      log('info', `[${this.definition.name}] Resume interrupted track at ~${resumePosition.toFixed(1)}s`);
+      void this.startAt(this.currentVideo, resumePosition);
+    }, delayMs);
   }
 
   async enrichMetadata(videoId, generation) {
@@ -460,16 +616,25 @@ class M1SPlayer extends Player {
     this.startedAt = Date.now();
     this.paused = false;
     this.clearEndTimer();
+    this.clearInterruptResumeTimer();
 
-    const url = audioUrl(this.definition.key, id, this.basePosition);
+    await this.ensureIndividualReadyForPlayback();
+
+    const stream = audioUrl(this.definition.key, id, this.basePosition);
+    this.currentStream = { serial: stream.serial, videoId: id };
     log('info', `[${this.definition.name}] Play: ${this.title}`, `-> ${this.definition.entityId}`);
 
     try {
       // Fast start: do not block playback on a separate yt-dlp metadata lookup.
       await haService(this.definition.entityId, 'play_media', {
-        media_content_id: url,
+        media_content_id: stream.url,
         media_content_type: 'music',
-        extra: { title: this.title }
+        extra: {
+          title: this.title,
+          m1s_youtube_cast_receiver: true,
+          video_id: id,
+          stream_serial: stream.serial
+        }
       });
 
       // Metadata is deliberately delayed and fetched in the background so it does
@@ -480,7 +645,9 @@ class M1SPlayer extends Player {
     } catch (error) {
       log('error', `[${this.definition.name}] Home Assistant play_media failed.`, error.message);
       this.startedAt = null;
+      this.currentStream = null;
       this.clearEndTimer();
+      this.clearInterruptResumeTimer();
       return false;
     }
   }
@@ -494,6 +661,7 @@ class M1SPlayer extends Player {
     this.startedAt = null;
     this.paused = true;
     this.clearEndTimer();
+    this.clearInterruptResumeTimer();
     killActiveAudio(this.definition.key);
     try {
       await haService(this.definition.entityId, 'media_stop');
@@ -515,7 +683,9 @@ class M1SPlayer extends Player {
     this.basePosition = 0;
     this.startedAt = null;
     this.paused = false;
+    this.currentStream = null;
     this.clearEndTimer();
+    this.clearInterruptResumeTimer();
     killActiveAudio(this.definition.key);
     try {
       await haService(this.definition.entityId, 'media_stop');
@@ -531,6 +701,7 @@ class M1SPlayer extends Player {
     if (!this.currentVideo) return false;
     this.basePosition = Math.max(0, Number(position) || 0);
     this.clearEndTimer();
+    this.clearInterruptResumeTimer();
     if (this.paused) return true;
     killActiveAudio(this.definition.key);
     try {
@@ -618,7 +789,8 @@ receiverDefinitionsByKey = new Map(receiverDefinitions.map((item) => [item.key, 
 
 log('info', `Discovered ${receiverDefinitions.length} Cast receiver(s).`);
 for (const def of receiverDefinitions) {
-  log('info', `Receiver: "${def.name}"`, `${def.entityId} DIAL:${def.port}`);
+  const switchInfo = def.includeSwitchEntity ? ` group-switch:${def.includeSwitchEntity}` : '';
+  log('info', `Receiver: "${def.name}"`, `${def.entityId} DIAL:${def.port}${switchInfo}`);
 }
 
 await new Promise((resolve, reject) => {
@@ -634,6 +806,7 @@ try {
     const player = new M1SPlayer(def);
     await initializeVolume(player);
     installQueueLogging(player);
+    runtimePlayersByKey.set(def.key, player);
 
     const receiver = new YouTubeCastReceiver(player, {
       app: {

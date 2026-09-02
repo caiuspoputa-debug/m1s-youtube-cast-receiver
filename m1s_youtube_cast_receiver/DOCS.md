@@ -1,4 +1,4 @@
-# Installation and first test - v0.2.0
+# Installation and first test - v0.3.3
 
 This Home Assistant app/add-on is currently built for **amd64**.
 
@@ -39,6 +39,26 @@ YouTube sender -> DIAL/Lounge receiver -> local yt-dlp audio endpoint -> Home As
 
 The HTTP audio bridge is shared, but each receiver has its own active yt-dlp process tracking.
 
+## Individual players that are in the group
+
+If you cast directly to an individual Aqara M1S while that player is still included in
+`media_player.m1s_media_group`, the Aqara integration may not play anything on the individual
+target until it is removed from the group.
+
+With `auto_remove_individual_from_group: true`, the add-on looks for the matching switch ending
+in `_include_in_m1s_media_group`. When that switch is on, it turns the switch off, waits
+`auto_remove_group_delay_ms` milliseconds, and then starts the YouTube / YouTube Music stream.
+
+The default wait is 300 ms.
+
+## Short notification interruptions
+
+If another Home Assistant action or notification sound briefly takes over the same Aqara M1S
+media player, the add-on treats that as an interruption, not as the natural end of the track.
+It resumes the same YouTube Music item instead of asking the Cast queue for the next item.
+
+The default resume delay is 300 ms. Use `resume_interrupted_delay_ms: 0` for immediate resume.
+
 ## TV code
 
 To avoid generating a large number of pairing codes, the manual TV pairing code is generated
@@ -56,6 +76,11 @@ YouTube Cast menu through DIAL discovery.
 - `include_individual`: auto-create Cast receivers for individual M1S media players.
 - `individual_match`: text used to identify M1S media_player entities.
 - `max_receivers`: maximum total receiver count including group.
+- `resume_interrupted_stream`: resume the current track when the audio stream is interrupted.
+- `resume_interrupted_delay_ms`: delay before resume after a short interruption, default 300.
+- `auto_remove_individual_from_group`: remove an individual player from the M1S media group
+  before direct playback, default true.
+- `auto_remove_group_delay_ms`: delay after removing the player from the group, default 300.
 - `log_level`: error / warn / info / debug.
 
 ## First test
