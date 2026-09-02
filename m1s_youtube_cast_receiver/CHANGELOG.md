@@ -1,3 +1,8 @@
+## 0.3.24 - 500 ms group STOP settle before YT/YTM Play
+
+- Based strictly on v0.3.23; ownership, individual group restoration, mapping, queue and EOF logic are unchanged.
+- After a group `media_stop` is confirmed, waits 500 ms before issuing the next YT/YTM `play_media`, reproducing the proven manual STOP -> settle -> PLAY boundary with a longer transport/ALSA settle window.
+
 ## 0.3.23 - Source ownership + exact individual group restore
 
 - Based strictly on v0.3.22; no audio extraction, queue timing, title, mapping or group-end changes.

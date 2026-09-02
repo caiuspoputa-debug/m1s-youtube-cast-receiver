@@ -1,5 +1,5 @@
 name: "M1S YouTube Cast Receiver"
-version: "0.3.23"
+version: "0.3.24"
 slug: "m1s_youtube_cast_receiver"
 description: >-
   YouTube / YouTube Music multi-receiver for Aqara M1S individual media players

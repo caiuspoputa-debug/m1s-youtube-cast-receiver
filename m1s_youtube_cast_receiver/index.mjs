@@ -857,8 +857,8 @@ class M1SPlayer extends Player {
 
     // Mirror the manual sequence that is known to synchronize the hubs:
     // HA STOP first while the old HTTP stream still exists, wait for HA to
-    // report the group stopped, then terminate the obsolete stream. No fixed
-    // 300 ms delay on the normal path.
+    // report the group stopped, then give the hub/ALSA transport 500 ms to
+    // settle before the next YT/YTM Play.
     const expectedPath = this.expectedStreamPath();
     let lastError = null;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -867,7 +867,8 @@ class M1SPlayer extends Player {
         const stopped = await this.waitUntilTargetStopped(expectedPath);
         if (!stopped) throw new Error('group did not reach a stopped state before Play');
         killActiveAudio(this.definition.key);
-        log('debug', `[${this.definition.name}] Clean group STOP confirmed before Play.`);
+        await sleep(500);
+        log('debug', `[${this.definition.name}] Clean group STOP confirmed; 500 ms settle completed before Play.`);
         return true;
       } catch (error) {
         lastError = error;
