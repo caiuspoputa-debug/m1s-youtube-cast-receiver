@@ -1,3 +1,8 @@
+## 0.3.9
+
+- Resolve a lightweight YouTube/YouTube Music title before the initial Home Assistant `play_media` call when the Cast sender supplies only a video id, so `media_title` shows the real track/video name instead of `YouTube <video_id>`.
+- Keep the existing audio path and background full metadata lookup; no second `play_media` call or stream restart is used to update the title.
+
 # 0.3.8
 
 - Stops the active YouTube / YouTube Music playback when the last sender disappears through an implicit disconnect (for example when the sender app is closed/killed).

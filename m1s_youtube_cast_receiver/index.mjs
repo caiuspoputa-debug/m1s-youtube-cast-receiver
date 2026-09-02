@@ -309,6 +309,39 @@ class JsonDataStore {
 }
 
 const metadataCache = new Map();
+const quickTitleCache = new Map();
+
+async function getQuickYouTubeTitle(videoId, timeoutMs = 1200) {
+  const cached = quickTitleCache.get(videoId);
+  if (cached) return cached;
+
+  const promise = (async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Math.max(100, timeoutMs));
+    try {
+      const watchUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
+      const endpoint = `https://www.youtube.com/oembed?url=${encodeURIComponent(watchUrl)}&format=json`;
+      const response = await fetch(endpoint, { signal: controller.signal });
+      if (!response.ok) throw new Error(`YouTube oEmbed -> ${response.status}`);
+      const data = await response.json();
+      const title = typeof data?.title === 'string' ? data.title.trim() : '';
+      if (!title) throw new Error('YouTube oEmbed returned no title');
+      return title;
+    } finally {
+      clearTimeout(timer);
+    }
+  })();
+
+  quickTitleCache.set(videoId, promise);
+  try {
+    const title = await promise;
+    quickTitleCache.set(videoId, Promise.resolve(title));
+    return title;
+  } catch (error) {
+    quickTitleCache.delete(videoId);
+    throw error;
+  }
+}
 
 function runYtDlpJson(videoId) {
   return new Promise((resolve, reject) => {
@@ -729,6 +762,20 @@ class M1SPlayer extends Player {
     this.currentVideoId = id;
     this.title = String(video?.title || `YouTube ${id}`);
     this.duration = Number(video?.duration || 0) || 0;
+
+    // HA stores media_title when play_media starts. If the sender did not provide
+    // a real title, resolve only the lightweight YouTube title before the single
+    // play_media call. This avoids restarting the stream just to refresh metadata.
+    if (!video?.title || this.title === `YouTube ${id}`) {
+      try {
+        const quickTitle = await getQuickYouTubeTitle(id);
+        if (generation !== this.playGeneration || id !== this.currentVideoId) return false;
+        this.title = quickTitle || this.title;
+        log('debug', `[${this.definition.name}] Quick title ready: ${this.title}`);
+      } catch (error) {
+        log('debug', `[${this.definition.name}] Quick title lookup failed for ${id}; using fallback title.`, error?.message || String(error));
+      }
+    }
     this.basePosition = Math.max(0, Number(position) || 0);
     this.startedAt = Date.now();
     this.paused = false;
