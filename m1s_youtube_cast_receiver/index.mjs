@@ -691,25 +691,27 @@ class M1SPlayer extends Player {
     if (generation !== this.playGeneration) return;
     this.startCompletionMonitor(generation);
     if (
-      !this.definition.isGroup
-      || this.paused
+      this.paused
       || this.startedAt === null
       || !(this.duration > 0)
     ) return;
 
+    // YT/YTM-only safety boundary. Normal HA EOF remains authoritative and can
+    // advance earlier; this timer exists only for a track that stays active
+    // past its advertised duration. Give the downstream transport 5.5 seconds
+    // to finish naturally before forcing the clean end transition.
     const remainingSeconds = Math.max(0, this.duration - this.currentPosition());
-    const delayMs = Math.max(250, Math.round((remainingSeconds + 0.75) * 1000));
+    const delayMs = Math.max(250, Math.round((remainingSeconds + 5.5) * 1000));
     this.endTimer = setTimeout(() => {
       this.endTimer = null;
       void this.handleGroupDurationBoundary(generation);
     }, delayMs);
-    log('debug', `[${this.definition.name}] Group end guard armed in ${(delayMs / 1000).toFixed(2)}s.`);
+    log('debug', `[${this.definition.name}] YT/YTM end guard armed in ${(delayMs / 1000).toFixed(2)}s (+5.5s grace).`);
   }
 
   async handleGroupDurationBoundary(generation) {
     if (
       generation !== this.playGeneration
-      || !this.definition.isGroup
       || this.paused
       || this.startedAt === null
       || this.endTransitionRunning
@@ -722,6 +724,16 @@ class M1SPlayer extends Player {
       const active = snapshot.state === 'playing' || snapshot.state === 'buffering';
       const isOurSource = Boolean(snapshot.mediaId && snapshot.mediaId.includes(expectedPath));
       if (!active || !isOurSource) return;
+
+      // Individual YT/YTM uses the normal Player next/stop path so the existing
+      // v0.3.7 group-membership session memory remains untouched between tracks.
+      // The group keeps its established clean transport STOP boundary below.
+      if (!this.definition.isGroup) {
+        this.cancelCompletionMonitor();
+        log('info', `[${this.definition.name}] YT/YTM duration +5.5s safety boundary reached; requesting next queue item.`);
+        await this.handlePlaybackEnded(generation);
+        return;
+      }
 
       this.cancelCompletionMonitor();
       let stopped = false;

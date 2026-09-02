@@ -1,3 +1,10 @@
+## 0.3.25 - YT/YTM end grace 5.5 seconds
+
+- Based strictly on v0.3.24; the 500 ms group STOP settle, ownership guard, mapping, queue handling and individual group restore logic are unchanged.
+- Keeps Home Assistant natural EOF as the primary completion path; if EOF arrives normally, the next track starts immediately as before.
+- Changes the YT/YTM duration safety boundary from +0.75 s to +5.5 s and applies that fallback to both the group and individual YT/YTM receivers.
+- The +5.5 s value is only a maximum end-of-track grace/fallback; it does not alter reported duration, playback speed, Radio, or any add-on option.
+
 ## 0.3.24 - 500 ms group STOP settle before YT/YTM Play
 
 - Based strictly on v0.3.23; ownership, individual group restoration, mapping, queue and EOF logic are unchanged.
