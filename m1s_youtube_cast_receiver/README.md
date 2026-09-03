@@ -1,3 +1,7 @@
+## Continuous YT/YTM transport (0.3.52)
+
+The add-on now keeps one audio URL open for the entire Cast session. Track changes, queue advance, seek and resume are handled inside that stream, so Home Assistant only buffers when the YT/YTM source is first selected.
+
 # M1S YouTube Cast Receiver
 
 Home Assistant app/add-on that exposes the Aqara M1S Media Group and the individual

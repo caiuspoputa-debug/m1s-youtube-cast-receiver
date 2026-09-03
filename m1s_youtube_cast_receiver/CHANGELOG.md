@@ -1,3 +1,12 @@
+## 0.3.52
+- New continuous YT/YTM transport: one PCM/WAV stream stays open for the complete Cast session.
+- Track EOF, queue advance and extraction are owned by the add-on; HA no longer receives per-track EOF or a new URL.
+- Natural Next appends the next decoded track into the same stream; Pause, Resume and Seek also keep the HA transport open.
+- HA buffering therefore happens only when entering the YT/YTM source, not at every song change.
+- Removed the +7 second sender-duration experiment; exact metadata duration is reported again.
+- Removed per-track 410/replay blocking and all duration/HA-state end-of-song guessing.
+- Existing individual group-membership restore and external-source ownership protection remain.
+
 ## 0.3.51
 - Repack of 0.3.49 with identical runtime logic; version number only changed so Home Assistant sees it as a newer add-on release.
 - Keeps duration reported to Cast/YTM at metadata duration +7s, group Play hold 5s, Seek/Resume 4s, and all 0.3.49 playback behavior unchanged.
