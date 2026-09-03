@@ -1,3 +1,9 @@
+## 0.3.34
+
+- Group YT/YTM start hold changed from 6 seconds to 5 seconds.
+- Group YT/YTM end transition now waits 5 seconds before Next, on both HA EOF/idle and duration-guard paths.
+- No integration, individual-player, ownership, mapping, or other settings changed.
+
 ## 0.3.33 - 6 s YT/YTM group sender buffering
 
 - Based strictly on v0.3.32 / v0.3.24 runtime.

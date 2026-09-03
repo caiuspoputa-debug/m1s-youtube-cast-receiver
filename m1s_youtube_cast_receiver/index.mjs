@@ -658,8 +658,13 @@ class M1SPlayer extends Player {
             // been handed to the hub pipelines. Allow only the receiver-side
             // prefill tail to drain; this is derived from the integration state,
             // not a duration/timeline guess.
-            const bufferedTailSeconds = Math.max(snapshot.remotePrefillSeconds, snapshot.maxAlsaDelaySeconds || 0);
-            const drainMs = Math.max(250, Math.min(3000, Math.round((bufferedTailSeconds + 0.25) * 1000)));
+            // Group YT/YTM timing contract: keep the sender on the current item
+            // for five seconds after HA reports the source inactive so queued/
+            // receiver-side audio can finish before Next. Individual players keep
+            // the existing integration-derived tail calculation.
+            const drainMs = this.definition.isGroup
+              ? 5000
+              : Math.max(250, Math.min(3000, Math.round((Math.max(snapshot.remotePrefillSeconds, snapshot.maxAlsaDelaySeconds || 0) + 0.25) * 1000)));
             if (drainMs > 0) await sleep(drainMs);
             if (token.cancelled || generation !== this.playGeneration) return;
 
@@ -698,7 +703,7 @@ class M1SPlayer extends Player {
     ) return;
 
     const remainingSeconds = Math.max(0, this.duration - this.currentPosition());
-    const delayMs = Math.max(250, Math.round((remainingSeconds + 0.75) * 1000));
+    const delayMs = Math.max(250, Math.round((remainingSeconds + 5.0) * 1000));
     this.endTimer = setTimeout(() => {
       this.endTimer = null;
       void this.handleGroupDurationBoundary(generation);
@@ -967,13 +972,13 @@ class M1SPlayer extends Player {
       this.ownsTarget = true;
       this.sessionRelinquished = false;
 
-      // Group-only Cast buffering contract: keep the sender in LOADING for six
+      // Group-only Cast buffering contract: keep the sender in LOADING for five
       // seconds after HA accepted the new stream. Player.play() and Player.seek()
       // do not publish PLAYING until startAt() returns, so this applies equally to
       // an initial Play and every YT/YTM seek without touching individual players.
       if (this.definition.isGroup) {
-        log('debug', `[${this.definition.name}] Holding Cast sender in LOADING for 6.0s while group buffers.`);
-        await sleep(6000);
+        log('debug', `[${this.definition.name}] Holding Cast sender in LOADING for 5.0s while group buffers.`);
+        await sleep(5000);
         if (generation !== this.playGeneration || this.sessionRelinquished) return false;
       }
 
