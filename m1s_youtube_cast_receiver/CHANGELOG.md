@@ -1,3 +1,10 @@
+## 0.3.33 - 6 s YT/YTM group sender buffering
+
+- Based strictly on v0.3.32 / v0.3.24 runtime.
+- Group YT/YTM Play keeps the Cast sender in LOADING for 6 seconds after Home Assistant accepts the new stream, then releases PLAYING so the YTM counter starts after the measured group buffering interval.
+- YT/YTM Seek uses the same 6-second LOADING window because seek restarts through the same startAt() path.
+- Individual players, group membership/restore, ownership, mapping, STOP/PLAY boundaries, Radio and add-on options are unchanged.
+
 ## 0.3.24 - 500 ms group STOP settle before YT/YTM Play
 
 - Based strictly on v0.3.23; ownership, individual group restoration, mapping, queue and EOF logic are unchanged.

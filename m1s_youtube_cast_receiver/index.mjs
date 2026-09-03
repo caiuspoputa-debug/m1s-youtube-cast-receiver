@@ -967,8 +967,18 @@ class M1SPlayer extends Player {
       this.ownsTarget = true;
       this.sessionRelinquished = false;
 
-      // Start the logical track clock only after Home Assistant accepted Play.
-      // This deliberately biases the boundary late rather than cutting audio early.
+      // Group-only Cast buffering contract: keep the sender in LOADING for six
+      // seconds after HA accepted the new stream. Player.play() and Player.seek()
+      // do not publish PLAYING until startAt() returns, so this applies equally to
+      // an initial Play and every YT/YTM seek without touching individual players.
+      if (this.definition.isGroup) {
+        log('debug', `[${this.definition.name}] Holding Cast sender in LOADING for 6.0s while group buffers.`);
+        await sleep(6000);
+        if (generation !== this.playGeneration || this.sessionRelinquished) return false;
+      }
+
+      // Start the logical YT/YTM clock only when the Cast sender is released from
+      // LOADING. For the group this is after the six-second buffering window.
       if (generation === this.playGeneration) this.startedAt = Date.now();
 
       // Metadata is deliberately delayed and fetched in the background so it does
