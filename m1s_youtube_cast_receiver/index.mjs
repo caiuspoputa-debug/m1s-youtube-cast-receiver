@@ -388,6 +388,20 @@ function getMetadata(videoId) {
 
 let streamSerial = 0;
 const activeAudioChildren = new Map();
+// Once a finite yt-dlp stream reaches a clean EOF, never serve the same
+// receiver/video/serial URL again. Some HA/M1S transport paths retry a closed
+// HTTP URL; replaying it would restart the same song from the beginning.
+const completedAudioStreams = new Map();
+
+function audioStreamToken(receiverKey, videoId, serial) {
+  return `${receiverKey}:${videoId}:${serial}`;
+}
+
+function pruneCompletedAudioStreams(now = Date.now()) {
+  for (const [token, finishedAt] of completedAudioStreams.entries()) {
+    if (now - finishedAt > 15 * 60 * 1000) completedAudioStreams.delete(token);
+  }
+}
 const runtimePlayersByKey = new Map();
 let receiverDefinitions = [];
 let receiverDefinitionsByKey = new Map();
@@ -444,6 +458,18 @@ const audioServer = http.createServer((req, res) => {
     return;
   }
 
+  const streamToken = audioStreamToken(receiverKey, videoId, serial);
+  pruneCompletedAudioStreams();
+  if (completedAudioStreams.has(streamToken)) {
+    log('debug', `[${def.name}] Refusing replay of completed audio stream: ${videoId} serial=${serial}`);
+    res.writeHead(410, {
+      'Cache-Control': 'no-store',
+      'Connection': 'close'
+    });
+    res.end('Audio stream already completed');
+    return;
+  }
+
   const start = Math.max(0, Number(parsed.searchParams.get('start') || 0) || 0);
   log('info', `[${def.name}] Audio requested: ${videoId}`, start > 0.5 ? `from ${start.toFixed(1)}s` : '');
   killActiveAudio(receiverKey);
@@ -483,7 +509,9 @@ const audioServer = http.createServer((req, res) => {
     if (code !== 0 && code !== null) {
       log('error', `[${def.name}] yt-dlp audio exited with code ${code}`, stderr.trim().slice(-1200));
     } else {
-      log('debug', `[${def.name}] yt-dlp audio finished for ${videoId}`);
+      completedAudioStreams.set(streamToken, Date.now());
+      log('info', `[${def.name}] yt-dlp source EOF reached for ${videoId} serial=${serial}.`);
+      if (def.isGroup) void player?.handleAudioSourceEof(serial, videoId);
     }
     if (!res.writableEnded) res.end();
   });
@@ -822,6 +850,83 @@ class M1SPlayer extends Player {
     }
     log('error', `[${this.definition.name}] Refusing group Play without a clean STOP boundary.`, lastError?.message || 'unknown error');
     return false;
+  }
+
+  async handleAudioSourceEof(serial, videoId) {
+    if (
+      !this.definition.isGroup
+      || !this.currentStream
+      || this.currentStream.serial !== serial
+      || this.currentStream.videoId !== videoId
+      || this.paused
+      || this.startedAt === null
+      || this.endTransitionRunning
+    ) return;
+
+    const generation = this.playGeneration;
+    const expectedPath = this.expectedStreamPath();
+    if (!expectedPath) return;
+
+    // The upstream source itself is exhausted. From this point the same URL is
+    // permanently blocked by completedAudioStreams, so HA/M1S cannot restart it.
+    // Drain only the real transport tail reported by HA, then close the finished
+    // transport once and advance the Cast queue.
+    this.cancelCompletionMonitor();
+
+    let snapshot;
+    try {
+      snapshot = await this.readTargetPlaybackState();
+    } catch (error) {
+      log('warn', `[${this.definition.name}] Could not read group state at source EOF.`, error?.message || String(error));
+      snapshot = { state: '', mediaId: '', remotePrefillSeconds: 0, maxAlsaDelaySeconds: 0 };
+    }
+
+    const isOurSource = !snapshot.mediaId || snapshot.mediaId.includes(expectedPath);
+    if (!isOurSource) {
+      await this.relinquishToExternalSource('HA source changed at YouTube source EOF');
+      return;
+    }
+
+    const bufferedTailSeconds = Math.max(
+      Number(snapshot.remotePrefillSeconds || 0),
+      Number(snapshot.maxAlsaDelaySeconds || 0)
+    );
+    const drainMs = Math.max(300, Math.min(4000, Math.round((bufferedTailSeconds + 0.35) * 1000)));
+    log('info', `[${this.definition.name}] Source EOF; draining real group tail for ${(drainMs / 1000).toFixed(2)}s before final STOP.`);
+    await sleep(drainMs);
+
+    if (
+      generation !== this.playGeneration
+      || this.paused
+      || this.startedAt === null
+      || this.sessionRelinquished
+    ) return;
+
+    try {
+      const confirm = await this.readTargetPlaybackState();
+      const confirmOurSource = !confirm.mediaId || confirm.mediaId.includes(expectedPath);
+      if (!confirmOurSource) {
+        await this.relinquishToExternalSource('HA source changed while draining YouTube source EOF');
+        return;
+      }
+
+      const active = confirm.state === 'playing' || confirm.state === 'buffering';
+      if (active) {
+        await haService(this.definition.entityId, 'media_stop');
+        const stopped = await this.waitUntilTargetStopped(expectedPath, 2500);
+        if (!stopped) throw new Error('group remained active after source EOF STOP');
+      }
+
+      killActiveAudio(this.definition.key);
+      this.currentStream = null;
+      this.groupBoundaryPreStopped = true;
+      log('info', `[${this.definition.name}] Source EOF finalized cleanly; advancing queue.`);
+      await this.handlePlaybackEnded(generation);
+    } catch (error) {
+      log('error', `[${this.definition.name}] Source EOF finalization failed.`, error?.message || String(error));
+      // Keep the completed-stream replay block in place. Never restart the same
+      // finished serial even if the final STOP/state confirmation failed.
+    }
   }
 
   handleStreamInterrupted(serial, videoId, reason) {

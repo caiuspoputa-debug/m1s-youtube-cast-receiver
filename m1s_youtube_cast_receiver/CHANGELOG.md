@@ -1,3 +1,9 @@
+## 0.3.45
+- Group YT/YTM now treats clean `yt-dlp` source EOF as the authoritative end signal.
+- A completed receiver/video/serial audio URL is never served again, preventing end-of-track retries from restarting the same song.
+- After source EOF, the add-on drains only the real HA-reported group prefill/ALSA tail, performs one clean final STOP if still active, then advances the Cast queue.
+- No duration/currentPosition end timer, no audio acceleration; initial group Play remains 5s and Seek/Resume remain 4s.
+
 ## 0.3.44
 - Group YT/YTM natural-end logic now relies only on the real Home Assistant/M1S playback state transition to EOF/idle.
 - Removed the group duration/currentPosition end guard that force-stopped playback and requested Next on a calculated timer.
