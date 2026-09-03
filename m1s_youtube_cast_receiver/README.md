@@ -1,47 +1,27 @@
-# M1S YouTube Cast Receiver 1.0.0
+# M1S YouTube Cast Receiver — v1.0.1
 
-Receiver YouTube / YouTube Music pentru Aqara M1S, construit pe un **transport audio continuu**.
+This add-on exposes the Aqara M1S Media Group and discovered individual Aqara M1S media players as YouTube / YouTube Music Cast/DIAL targets.
 
-## Arhitectură
+## Architecture
 
-La începutul unei sesiuni Cast, add-on-ul pornește un singur `play_media` în Home Assistant către un URL de sesiune. Acel URL rămâne deschis între melodii.
+The add-on owns YouTube/YTM playback: Cast state, track extraction, queue progression and track changes. Home Assistant receives one continuous audio stream for the Cast session and the M1S integration transports that audio to the hub(s).
 
-```text
-YouTube / YouTube Music sender
-        ↓
-DIAL / Lounge receiver
-        ↓
-add-on: coadă + yt-dlp + decodare
-        ↓
-WAV/PCM continuu 32 kHz mono
-        ↓
-Home Assistant / integrarea M1S
-        ↓
-M1S individual sau M1S Media Group
-```
+**Track change does not mean a new HA playback session.** The next decoded track is fed into the same continuous stream.
 
-Schimbarea piesei, EOF-ul piesei, Next, Seek, Pause și Resume sunt gestionate în add-on. Home Assistant nu primește un nou URL și nu trebuie să refacă transportul la fiecare melodie.
+This keeps group buffering and synchronization stable in the same way a continuous radio stream does.
 
-## Comportament
+## Preserved behavior
 
-- **Start sesiune:** se deschide transportul HA o singură dată.
-- **Schimbare melodie:** noul PCM este introdus în același flux.
-- **Natural EOF:** add-on-ul cere următoarea piesă din coada Cast și continuă același flux.
-- **Seek / Resume:** decoderul piesei este repoziționat în interiorul sesiunii existente.
-- **Pause:** sesiunea rămâne proprietatea add-on-ului; transportul nu este reconstruit per-track.
-- **Stop real / sfârșit coadă:** sesiunea continuă este închisă.
-- **Altă sursă HA:** add-on-ul renunță la ownership fără să oprească sursa nouă.
+- Group and individual Cast targets.
+- Continuous session audio.
+- Queue progression inside the add-on.
+- Phone Next / Seek / Pause / Resume without per-track HA transport restart.
+- Automatic temporary removal of an individual M1S from the group when direct playback requires it.
+- Restoration to the group only when that M1S was originally in the group.
+- Protection against stale YouTube commands taking control back from another HA source.
 
-## Grup și playere individuale
+## Important
 
-Ținta implicită de grup este `media_player.m1s_media_group`.
+v1.0.1 intentionally preserves the working 0.3.52 runtime and configuration. Only the Home Assistant add-on version number and documentation are changed.
 
-Cu `include_individual: true`, add-on-ul descoperă și creează receivere Cast pentru playerele individuale care corespund lui `individual_match`.
-
-Dacă un M1S individual este inclus în grup, `auto_remove_individual_from_group: true` îl scoate temporar înainte de sesiunea directă. La Stop, `auto_restore_individual_to_group: true` îl readuce **doar dacă fusese în grup înainte de sesiune**.
-
-## Principiul care trebuie păstrat
-
-**Add-on-ul este playerul. Integrarea M1S este transportul.**
-
-Nu trebuie introdusă logică per-track în Home Assistant sau în integrarea M1S. Pentru detalii și lista completă „CE NU TREBUIE FĂCUT”, vezi README-ul din rădăcina repository-ului.
+See `DOCS.md` for installation/options and the repository root `README.md` for the rules that must not be reintroduced.

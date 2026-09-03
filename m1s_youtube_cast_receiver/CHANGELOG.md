@@ -1,16 +1,9 @@
 # Changelog
 
-## 1.0.0
+## 1.0.1
 
-Prima versiune declarată curată/stabilă a arhitecturii YT/YTM cu transport continuu.
-
-- Un singur flux WAV/PCM rămâne deschis pentru întreaga sesiune Cast.
-- EOF-ul melodiei, coada și trecerea la următoarea piesă sunt gestionate exclusiv de add-on.
-- Home Assistant nu mai primește EOF sau URL nou la fiecare melodie.
-- Next, Seek, Pause și Resume sunt gestionate în sesiunea continuă.
-- Buffering-ul/sincronizarea HA apar la intrarea în sursa YT/YTM, nu la fiecare piesă.
-- Durata raportată este durata reală; nu există compensare `+N` secunde.
-- Nu există accelerare audio pentru compensarea timing-ului.
-- Nu există blocare HTTP 410 per melodie terminată.
-- Ownership-ul sursei și restaurarea exactă a apartenenței playerelor individuale la grup sunt păstrate.
-- Documentația `1.0.0` descrie numai arhitectura curentă; istoricul experimental `0.x` rămâne disponibil în istoricul Git.
+- Clean stable release based directly on the working `0.3.52` continuous-session runtime.
+- Runtime `index.mjs` is unchanged from `0.3.52`.
+- `package.json`, Dockerfile, `run.sh`, repository metadata and all add-on options are unchanged from `0.3.52`.
+- Only the Home Assistant add-on `version:` is changed to `1.0.1`.
+- Documentation now describes only the continuous-session architecture and records the approaches that must not be reintroduced.

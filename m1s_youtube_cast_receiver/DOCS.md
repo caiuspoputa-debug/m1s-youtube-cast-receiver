@@ -1,48 +1,56 @@
-# M1S YouTube Cast Receiver 1.0.0 — configurare și test
+# Installation and configuration — v1.0.1
 
-## Cerințe
+Current build architecture: **amd64**.
 
-- Home Assistant cu Supervisor / Apps (add-ons).
-- Arhitectură `amd64`.
-- Integrarea Aqara M1S care expune `media_player.m1s_media_group` și/sau playerele individuale M1S.
-- Telefonul / aplicația YouTube sau YouTube Music trebuie să poată descoperi receiverul DIAL în rețeaua locală.
+## Cast targets
 
-## Opțiuni
+The add-on creates:
 
-- `target_entity`: media player-ul grupului. Implicit `media_player.m1s_media_group`.
-- `device_name`: numele receiverului de grup afișat în Cast. Implicit `Aqara M1S Group`.
-- `audio_port`: portul HTTP al fluxului audio continuu. Implicit `8098`.
-- `dial_port`: primul port DIAL. Implicit `8099`.
-- `stream_host`: IP/host LAN folosit pentru URL-ul audio. Gol = detectare automată.
-- `enable_tv_code`: activează pairing-ul manual prin TV code pentru receiverul de grup.
-- `include_individual`: creează și receivere pentru M1S individuale.
-- `individual_match`: text folosit la identificarea media_player-elor M1S individuale. Implicit `aqara_m1s_zigbee_router`.
-- `max_receivers`: numărul maxim de receivere, inclusiv grupul. Implicit `16`.
-- `auto_remove_individual_from_group`: scoate temporar un M1S din grup când se face Cast direct pe el.
-- `auto_restore_individual_to_group`: restaurează apartenența inițială la grup la Stop real.
-- `auto_remove_group_delay_ms`: pauză scurtă după scoaterea playerului individual din grup. Implicit `300 ms`.
-- `log_level`: `error`, `warn`, `info` sau `debug`.
+- one receiver for the configured group target, by default `media_player.m1s_media_group`;
+- individual receivers discovered from Home Assistant when `include_individual: true`.
 
-## Ce trebuie să vezi la funcționare normală
+Individual discovery uses `individual_match` against the media player entity id and friendly name. Default: `aqara_m1s_zigbee_router`.
 
-1. Pornește add-on-ul.
-2. În log trebuie să apară receiverele descoperite și pornirea receiverelor DIAL.
-3. Din YouTube / YouTube Music alege `Aqara M1S Group` sau un M1S individual.
-4. La începutul sesiunii, add-on-ul pornește **un singur transport continuu** în Home Assistant.
-5. Lasă să treacă minimum 3 melodii fără să oprești Cast-ul.
-6. Melodiile trebuie să ajungă la final și următoarea piesă trebuie să înceapă fără STOP/PLAY și fără un nou buffering al grupului.
-7. Testează apoi `Next`, `Seek`, `Pause` și `Resume` din aplicația de pe telefon.
-8. Pentru un receiver individual care era în grup, verifică faptul că este scos temporar și restaurat la Stop numai dacă inițial era în grup.
+## Ports
 
-## Semne că arhitectura a fost stricată
+- `audio_port`: continuous local audio bridge, default `8098`.
+- `dial_port`: first DIAL receiver port, default `8099`.
+- additional individual receivers use following DIAL ports.
 
-- Home Assistant primește alt URL audio la fiecare melodie.
-- apare `media_stop` / `play_media` între două melodii consecutive;
-- grupul face prebuffer/resync la fiecare piesă;
-- integrarea încearcă să decidă când s-a terminat o melodie YTM;
-- aceeași melodie pornește din nou după EOF;
-- durata raportată este modificată artificial;
-- audio este accelerat pentru a „recupera” timpul;
-- un endpoint audio răspunde cu 410 doar pentru că piesa fusese marcată ca terminată.
+## Audio behavior
 
-Dacă apare unul dintre aceste comportamente, nu se adaugă un al doilea mecanism de compensare. Se identifică mai întâi stratul care a încălcat regula de bază: **un Cast session = un singur transport HA continuu**.
+YouTube/YTM opens one continuous Home Assistant transport for the active Cast session. Song boundaries are handled inside the add-on. Home Assistant does not need a new audio URL for every song.
+
+## Individual M1S already in the group
+
+With `auto_remove_individual_from_group: true`, an M1S selected directly can be removed temporarily from the M1S group before playback. With `auto_restore_individual_to_group: true`, it is restored after a real Stop only when it was originally a group member.
+
+## Options
+
+- `target_entity`: group media player entity.
+- `device_name`: group receiver name shown to YouTube/YTM.
+- `audio_port`: continuous audio HTTP port.
+- `dial_port`: first DIAL port.
+- `stream_host`: blank uses automatic LAN IPv4 detection.
+- `enable_tv_code`: enable manual TV pairing code for the group receiver.
+- `include_individual`: discover individual M1S media players.
+- `individual_match`: discovery text for individual players.
+- `max_receivers`: maximum number of receivers including the group.
+- `resume_interrupted_stream`: preserved 0.3.52 option.
+- `resume_interrupted_delay_ms`: preserved 0.3.52 option.
+- `auto_remove_individual_from_group`: temporarily remove a directly cast individual from the group when necessary.
+- `auto_restore_individual_to_group`: restore original group membership on real Stop.
+- `auto_remove_group_delay_ms`: wait after group removal before direct playback.
+- `log_level`: `error`, `warn`, `info`, or `debug`.
+
+## First test
+
+1. Start the add-on.
+2. Confirm the group and expected individual receivers are discovered in the add-on log.
+3. Open YouTube or YouTube Music on the phone.
+4. Cast first to the group, then to one individual receiver.
+5. Play several consecutive songs and verify that song changes occur without a new HA buffering cycle.
+
+## Architecture rule
+
+Do not add per-track STOP/PLAY, per-track group prebuffer, integration-side YTM EOF detection, artificial duration offsets, audio acceleration, or HTTP 410 replay blocking. The Cast session must remain one continuous HA audio transport.
