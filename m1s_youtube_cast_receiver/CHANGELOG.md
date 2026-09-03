@@ -1,3 +1,7 @@
+## 0.3.39
+- Group YT/YTM audio speed test increased from 9% to 11% (`atempo=1.11`).
+- Individual YT/YTM remains at 3% (`atempo=1.03`); no other playback behavior changed.
+
 ## 0.3.38
 - Group YT/YTM audio speed test increased from 6% to 9% (`atempo=1.09`).
 - Individual YT/YTM remains at 3% (`atempo=1.03`).
