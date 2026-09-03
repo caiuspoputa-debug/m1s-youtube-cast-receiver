@@ -902,6 +902,18 @@ class M1SPlayer extends Player {
     this.preserveTransportAcrossStop = false;
     this.ownershipMonitor = null;
 
+    // Sender ownership is tracked by yt-cast-receiver Sender.id. This is a
+    // per-sender/device identifier; do not use Gaia/account ids here because
+    // two different phones may use the same Google account.
+    this.connectedSenderIds = new Set();
+    this.lastConnectedSenderId = null;
+    this.sessionSenderId = null;
+
+    // Group-only barrier used when the SAME sender moves from an individual
+    // receiver to the M1S Media Group. The individual must Stop + restore its
+    // original group membership before group playback starts.
+    this.pendingGroupSenderRestore = Promise.resolve();
+
     // Exact v0.3.7 individual-group session memory. Capture once before the
     // first automatic removal and never overwrite it on next/seek/resume.
     this.groupMembershipCaptured = false;
@@ -917,6 +929,75 @@ class M1SPlayer extends Player {
   currentPosition() {
     if (this.startedAt === null || this.paused) return this.basePosition;
     return Math.max(0, this.basePosition + (Date.now() - this.startedAt) / 1000);
+  }
+
+  noteSenderConnected(sender) {
+    const senderId = String(sender?.id || '').trim();
+    if (!senderId) return;
+    this.connectedSenderIds.add(senderId);
+    this.lastConnectedSenderId = senderId;
+  }
+
+  noteSenderDisconnected(sender) {
+    const senderId = String(sender?.id || '').trim();
+    if (!senderId) return;
+    this.connectedSenderIds.delete(senderId);
+    if (this.lastConnectedSenderId === senderId) {
+      this.lastConnectedSenderId = this.connectedSenderIds.size === 1
+        ? this.connectedSenderIds.values().next().value
+        : null;
+    }
+    // Do NOT clear sessionSenderId here. An implicit disconnect is deliberately
+    // allowed to keep playing; the same sender may immediately connect to the
+    // Group, where 1.0.2 needs to identify the active individual session.
+  }
+
+  captureSessionSenderForStart() {
+    if (this.definition.isGroup || this.sessionSenderId) return;
+    const senderId = this.lastConnectedSenderId
+      || (this.connectedSenderIds.size === 1 ? this.connectedSenderIds.values().next().value : null);
+    if (!senderId) {
+      log('warn', `[${this.definition.name}] Could not identify sender for individual YT/YTM session; same-phone Group restore will be unavailable for this session.`);
+      return;
+    }
+    this.sessionSenderId = senderId;
+    log('debug', `[${this.definition.name}] Individual YT/YTM session sender captured.`, `sender=${senderId}`);
+  }
+
+  queueSameSenderIndividualRestoreForGroup(sender) {
+    if (!this.definition.isGroup) return;
+    const senderId = String(sender?.id || '').trim();
+    if (!senderId) return;
+
+    const matchingPlayers = [...runtimePlayersByKey.values()].filter((candidate) =>
+      candidate !== this
+      && !candidate.definition.isGroup
+      && candidate.sessionSenderId === senderId
+      && candidate.continuousSession?.active
+    );
+    if (!matchingPlayers.length) return;
+
+    const restoreWork = async () => {
+      for (const candidate of matchingPlayers) {
+        // This rule is intentionally ONLY Individual -> Group for the SAME
+        // sender. Individual -> Individual is left untouched, and sessions
+        // owned by a different phone/sender are never stopped here.
+        log('info', `[${this.definition.name}] Same sender moved Individual -> Group; stopping ${candidate.definition.name} and restoring its original group membership when applicable before Group playback.`, `sender=${senderId}`);
+        try {
+          await candidate.stop();
+        } catch (error) {
+          log('warn', `[${this.definition.name}] Same-sender restore failed for ${candidate.definition.name}.`, error?.message || String(error));
+        }
+      }
+    };
+
+    // Chain handoffs so multiple matching individuals cannot race each other.
+    this.pendingGroupSenderRestore = this.pendingGroupSenderRestore.then(restoreWork, restoreWork);
+  }
+
+  async waitForPendingGroupSenderRestore() {
+    if (!this.definition.isGroup) return;
+    await this.pendingGroupSenderRestore;
   }
 
   expectedStreamPath() {
@@ -1158,6 +1239,8 @@ class M1SPlayer extends Player {
   }
 
   async startContinuousSession(prepared) {
+    this.captureSessionSenderForStart();
+    await this.waitForPendingGroupSenderRestore();
     await this.ensureIndividualReadyForPlayback();
     if (!(await this.ensureInitialGroupCleanStart())) return false;
 
@@ -1255,6 +1338,12 @@ class M1SPlayer extends Player {
       return false;
     }
     if (!prepared) return false;
+
+    // A same-phone Individual -> Group handoff can happen while the Group
+    // transport is already alive (for example, another phone is controlling
+    // the Group). Always finish the targeted restore before applying the new
+    // Group command.
+    await this.waitForPendingGroupSenderRestore();
 
     if (this.continuousSession?.active && this.ownsTarget) {
       return this.switchTrackInsideSession(prepared, { append: this.naturalAdvanceInProgress });
@@ -1377,6 +1466,7 @@ class M1SPlayer extends Player {
 
     this.ownsTarget = false;
     await this.restoreIndividualGroupAfterStop(!externalTakeover);
+    this.sessionSenderId = null;
     return stopped;
   }
 
@@ -1517,10 +1607,13 @@ try {
     });
 
     receiver.on('senderConnect', (sender) => {
-      log('info', `[${def.name}] Sender connected: ${sender?.name || 'unknown'}`);
+      player.noteSenderConnected(sender);
+      if (def.isGroup) player.queueSameSenderIndividualRestoreForGroup(sender);
+      log('info', `[${def.name}] Sender connected: ${sender?.name || 'unknown'}`, `id=${sender?.id || 'unknown'}`);
     });
     receiver.on('senderDisconnect', (sender, implicit) => {
-      log('info', `[${def.name}] Sender disconnected: ${sender?.name || 'unknown'} implicit=${Boolean(implicit)}`);
+      player.noteSenderDisconnected(sender);
+      log('info', `[${def.name}] Sender disconnected: ${sender?.name || 'unknown'} implicit=${Boolean(implicit)}`, `id=${sender?.id || 'unknown'}`);
     });
     receiver.on('error', (error) => log('error', `[${def.name}] Receiver error.`, error?.message || String(error)));
     receiver.on('terminate', (error) => log('error', `[${def.name}] Receiver terminated.`, error?.message || String(error)));

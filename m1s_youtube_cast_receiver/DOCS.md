@@ -23,7 +23,7 @@ YouTube/YTM opens one continuous Home Assistant transport for the active Cast se
 
 ## Individual M1S already in the group
 
-With `auto_remove_individual_from_group: true`, an M1S selected directly can be removed temporarily from the M1S group before playback. With `auto_restore_individual_to_group: true`, it is restored after a real Stop only when it was originally a group member.
+With `auto_remove_individual_from_group: true`, an M1S selected directly can be removed temporarily from the M1S group before playback. With `auto_restore_individual_to_group: true`, it is restored after a real Stop only when it was originally a group member. In v1.0.2, the same restore also runs when the **same sender device** moves from that individual receiver to `M1S Media Group`; this rule applies only to Individual -> Group, never Individual -> Individual, and never to a different sender/phone.
 
 ## Options
 

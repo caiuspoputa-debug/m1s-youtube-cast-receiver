@@ -1,4 +1,4 @@
-# M1S YouTube Cast Receiver — v1.0.1
+# M1S YouTube Cast Receiver — v1.0.2
 
 Home Assistant add-on for casting **YouTube / YouTube Music** to Aqara M1S players, individually or through **M1S Media Group**.
 
@@ -29,11 +29,12 @@ A Cast session opens **one continuous HA audio stream**. When the song changes, 
 - Stable group buffering/synchronization across a session.
 - Direct cast to an individual M1S, including temporary removal from the group when required.
 - Exact restoration of individual group membership after a real Stop.
+- Same-phone Individual → Group handoff: the individual is stopped/restored before Group playback; other phones and Individual → Individual moves are left untouched.
 - Source ownership protection when another Home Assistant source takes over the player.
 
 ## Version note
 
-`1.0.1` uses the **same runtime implementation and settings as the working 0.3.52 continuous-session build**. The Home Assistant add-on version is changed to `1.0.1`; runtime code and options are intentionally preserved.
+`1.0.2` is based strictly on the working `1.0.1` / `0.3.52` continuous-session runtime. The only runtime addition is sender-aware **Individual → Group** restoration: it matches the same phone by `Sender.id`, stops/restores only that phone's active individual session, and does not touch Individual → Individual moves or sessions owned by another phone.
 
 See [`m1s_youtube_cast_receiver/DOCS.md`](m1s_youtube_cast_receiver/DOCS.md) for installation and settings.
 
