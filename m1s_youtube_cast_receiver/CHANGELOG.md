@@ -1,8 +1,8 @@
-## 0.3.47
-- Replace the live yt-dlp stdout HTTP pipe with a finite per-stream local audio file.
-- Serve audio with Content-Length and Accept-Ranges/206 support so M1S/HA can request the remaining tail without restarting the song.
-- If the same URL is reopened without a Range header, resume from the last byte already handed to the prior response instead of replaying from byte zero or cutting the tail.
-- Keep natural HA/M1S EOF completion logic, initial group Play 5s, Seek/Resume 4s, and no audio acceleration.
+## 0.3.48
+- Rebased on 0.3.46; the experimental 0.3.47 finite-file/Range transport is not used.
+- Group natural EOF now drains the integration-reported per-member PCM queue plus the current/fallback hub ALSA prefill before requesting Next.
+- Keeps the completed-stream replay block from 0.3.46, Play start hold at 5s, Seek/Resume at 4s, and zero audio acceleration.
+- No duration-based end timer and no integration changes.
 
 ## 0.3.46
 - Keep the completed-stream replay block from 0.3.45 so a finished URL/serial cannot restart from the beginning.
