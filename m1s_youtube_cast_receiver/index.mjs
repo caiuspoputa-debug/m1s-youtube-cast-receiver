@@ -1026,7 +1026,7 @@ class M1SPlayer extends Player {
     }
   }
 
-  async startAt(video, position) {
+  async startAt(video, position, groupLoadingHoldMs = 4000) {
     const id = safeVideoId(video?.id);
     if (!id) {
       log('error', `[${this.definition.name}] Invalid YouTube video id: ${video?.id}`);
@@ -1091,18 +1091,17 @@ class M1SPlayer extends Player {
       this.ownsTarget = true;
       this.sessionRelinquished = false;
 
-      // Group-only Cast buffering contract: keep the sender in LOADING for four
-      // seconds after HA accepted the new stream. Player.play() and Player.seek()
-      // do not publish PLAYING until startAt() returns, so this applies equally to
-      // an initial Play and every YT/YTM seek without touching individual players.
+      // Group-only Cast buffering contract. Initial Play holds LOADING for 7s;
+      // Seek/Resume keep the existing 4s path. Individual players are untouched.
       if (this.definition.isGroup) {
-        log('debug', `[${this.definition.name}] Holding Cast sender in LOADING for 4.0s while group buffers.`);
-        await sleep(4000);
+        const holdMs = Math.max(0, Number(groupLoadingHoldMs) || 0);
+        log('debug', `[${this.definition.name}] Holding Cast sender in LOADING for ${(holdMs / 1000).toFixed(1)}s while group buffers.`);
+        await sleep(holdMs);
         if (generation !== this.playGeneration || this.sessionRelinquished) return false;
       }
 
       // Start the logical YT/YTM clock only when the Cast sender is released from
-      // LOADING. For the group this is after the four-second buffering window.
+      // LOADING.
       if (generation === this.playGeneration) this.startedAt = Date.now();
 
       // Metadata is deliberately delayed and fetched in the background so it does
@@ -1140,7 +1139,7 @@ class M1SPlayer extends Player {
     // Only an explicit Play may reacquire a target after Radio/another HA source
     // took it away. Stale Pause/Seek/Next/Previous are guarded below.
     this.sessionRelinquished = false;
-    return this.startAt(video, position);
+    return this.startAt(video, position, 7000);
   }
 
   async next(AID) {

@@ -1,3 +1,8 @@
+## 0.3.40
+- Group YT/YTM initial Play LOADING hold increased by 3 seconds, from 4s to 7s.
+- Seek/Resume remain at 4s; group speed remains 11% (`atempo=1.11`) and individual speed remains 3% (`atempo=1.03`).
+- No other playback behavior changed.
+
 ## 0.3.39
 - Group YT/YTM audio speed test increased from 9% to 11% (`atempo=1.11`).
 - Individual YT/YTM remains at 3% (`atempo=1.03`); no other playback behavior changed.
