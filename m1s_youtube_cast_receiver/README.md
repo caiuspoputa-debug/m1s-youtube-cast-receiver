@@ -1,56 +1,47 @@
-## Continuous YT/YTM transport (0.3.52)
+# M1S YouTube Cast Receiver 1.0.0
 
-The add-on now keeps one audio URL open for the entire Cast session. Track changes, queue advance, seek and resume are handled inside that stream, so Home Assistant only buffers when the YT/YTM source is first selected.
+Receiver YouTube / YouTube Music pentru Aqara M1S, construit pe un **transport audio continuu**.
 
-# M1S YouTube Cast Receiver
+## Arhitectură
 
-Home Assistant app/add-on that exposes the Aqara M1S Media Group and the individual
-Aqara M1S media players as YouTube / YouTube Music DIAL receivers.
+La începutul unei sesiuni Cast, add-on-ul pornește un singur `play_media` în Home Assistant către un URL de sesiune. Acel URL rămâne deschis între melodii.
 
-## v0.3.5
+```text
+YouTube / YouTube Music sender
+        ↓
+DIAL / Lounge receiver
+        ↓
+add-on: coadă + yt-dlp + decodare
+        ↓
+WAV/PCM continuu 32 kHz mono
+        ↓
+Home Assistant / integrarea M1S
+        ↓
+M1S individual sau M1S Media Group
+```
 
-- When you cast to an individual M1S that is currently included in the M1S media group,
-  the add-on can remove it from the group automatically before playback starts.
-- This is enabled by default with `auto_remove_individual_from_group: true`.
-- The default wait after removing the player from the group is 300 ms, controlled by
-  `auto_remove_group_delay_ms`.
+Schimbarea piesei, EOF-ul piesei, Next, Seek, Pause și Resume sunt gestionate în add-on. Home Assistant nu primește un nou URL și nu trebuie să refacă transportul la fiecare melodie.
 
-## v0.3.2
+## Comportament
 
-- Prevents short external notification sounds from being interpreted as a finished YouTube
-  Music track.
-- If the M1S closes the add-on stream before the track is near its real end, the add-on
-  resumes the same track instead of skipping to the next queue item.
-- The default resume delay is 300 ms. Set `resume_interrupted_delay_ms: 0` for immediate
-  resume, or raise it if another sound needs more time.
-- Removes the experimental stage marker from the Home Assistant add-on manifest.
+- **Start sesiune:** se deschide transportul HA o singură dată.
+- **Schimbare melodie:** noul PCM este introdus în același flux.
+- **Natural EOF:** add-on-ul cere următoarea piesă din coada Cast și continuă același flux.
+- **Seek / Resume:** decoderul piesei este repoziționat în interiorul sesiunii existente.
+- **Pause:** sesiunea rămâne proprietatea add-on-ului; transportul nu este reconstruit per-track.
+- **Stop real / sfârșit coadă:** sesiunea continuă este închisă.
+- **Altă sursă HA:** add-on-ul renunță la ownership fără să oprească sursa nouă.
 
-## v0.3.1
+## Grup și playere individuale
 
-- Fixes the Home Assistant image build failure from v0.3.0 by using the latest
-  `yt-cast-receiver` release that is actually published on npm: `2.1.0`.
-- Keeps the queue-aware playback progression added in v0.3.0.
+Ținta implicită de grup este `media_player.m1s_media_group`.
 
-## v0.3.0
+Cu `include_individual: true`, add-on-ul descoperă și creează receivere Cast pentru playerele individuale care corespund lui `individual_match`.
 
-- Adds queue-aware playback progression for YouTube / YouTube Music Cast sessions.
-- At the end of a track, the add-on now asks the Cast receiver queue for the next item.
-  This supports explicit queues, playlists, and YouTube autoplay when the sender provides
-  the needed queue context.
-- Cast state is kept across implicit sender disconnects, which helps long playback sessions
-  continue if the phone sleeps or briefly leaves the network.
-- Add-on logs now include queue, playlist, and autoplay mode changes for easier testing.
+Dacă un M1S individual este inclus în grup, `auto_remove_individual_from_group: true` îl scoate temporar înainte de sesiunea directă. La Stop, `auto_restore_individual_to_group: true` îl readuce **doar dacă fusese în grup înainte de sesiune**.
 
-## v0.2.0
+## Principiul care trebuie păstrat
 
-- Multi-receiver discovery: group + individual M1S media players.
-- Individual M1S players are discovered automatically from Home Assistant media_player
-  entities matching `aqara_m1s_zigbee_router`.
-- Each Cast target gets its own DIAL port, starting at `dial_port`.
-- Shared audio bridge remains on one HTTP port.
-- Fast-start playback: the initial yt-dlp metadata lookup no longer blocks playback.
-  Metadata is resolved in the background after `play_media` has already been sent.
-- Audio process tracking is isolated per receiver, so one receiver does not stop another.
-- Per-receiver persistent datastore under `/data`, avoiding the old shared node-persist issue.
+**Add-on-ul este playerul. Integrarea M1S este transportul.**
 
-Default group target: `media_player.m1s_media_group`.
+Nu trebuie introdusă logică per-track în Home Assistant sau în integrarea M1S. Pentru detalii și lista completă „CE NU TREBUIE FĂCUT”, vezi README-ul din rădăcina repository-ului.
