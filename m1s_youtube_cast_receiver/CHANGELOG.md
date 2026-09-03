@@ -1,13 +1,9 @@
-## 0.3.30
-- YT/YTM now sends the finite track duration and requested start position to the Aqara M1S integration.
-- If the Cast queue does not already contain a duration, the add-on resolves it once before Play and caches it.
-- No advertised-duration end timer was reintroduced; completion still follows the integration's real EOF/receiver drain state.
+## 0.3.31
 
-## 0.3.29
-
-- Removed the YT/YTM advertised-duration end timer completely.
-- Track completion now follows only the real Home Assistant/integration EOF state monitor.
-- No changes to group STOP settle, ownership, group restore, mapping, Radio, seek, or add-on options.
+- YT/YTM start handshake: sender stays LOADING until integration confirms the exact stream serial at first PCM release.
+- Removed fixed 500 ms group STOP settle delay.
+- Removed fixed individual group-removal delay; HA switch state is used instead.
+- Keeps the v0.3.29 no-duration-timer behavior; track completion remains driven by HA/integration EOF, with no duration cutoff reintroduced.
 
 ## 0.3.28 - YT/YTM end grace 0 seconds
 

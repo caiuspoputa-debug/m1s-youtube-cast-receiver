@@ -572,12 +572,38 @@ class M1SPlayer extends Player {
         maxAlsaDelaySeconds = Math.max(maxAlsaDelaySeconds, frames / 32000);
       }
     }
+    const startedRaw = attrs.ytm_transport_started_serial;
+    const streamRaw = attrs.ytm_stream_serial;
+    const startedSerial = startedRaw === null || startedRaw === undefined ? null : Number(startedRaw);
+    const streamSerial = streamRaw === null || streamRaw === undefined ? null : Number(streamRaw);
     return {
       state: String(state?.state || '').toLowerCase(),
       mediaId: String(attrs.media_content_id || attrs.media_content_url || attrs.last_media_id || ''),
       remotePrefillSeconds: Number(attrs.group_remote_prefill_seconds || 0) || 0,
-      maxAlsaDelaySeconds
+      maxAlsaDelaySeconds,
+      ytmStreamSerial: Number.isSafeInteger(streamSerial) ? streamSerial : null,
+      ytmTransportStartedSerial: Number.isSafeInteger(startedSerial) ? startedSerial : null
     };
+  }
+
+  async waitForTransportStarted(serial, expectedPath, timeoutMs = 15000) {
+    const wanted = Number(serial);
+    const deadline = Date.now() + Math.max(1000, Number(timeoutMs) || 15000);
+    while (Date.now() < deadline) {
+      try {
+        const snapshot = await this.readTargetPlaybackState();
+        const isOurSource = Boolean(snapshot.mediaId && expectedPath && snapshot.mediaId.includes(expectedPath));
+        if (isOurSource && snapshot.ytmTransportStartedSerial === wanted) {
+          log('debug', `[${this.definition.name}] Integration confirmed audible YT/YTM transport start.`, `serial=${wanted}`);
+          return true;
+        }
+        if (snapshot.mediaId && expectedPath && !isOurSource) return false;
+      } catch (error) {
+        log('debug', `[${this.definition.name}] Waiting for integration transport-start handshake.`, error?.message || String(error));
+      }
+      await sleep(40);
+    }
+    return false;
   }
 
   async targetStillOwnedByYoutube() {
@@ -815,7 +841,16 @@ class M1SPlayer extends Player {
     try {
       log('info', `[${this.definition.name}] Removing individual player from M1S group before playback.`, switchEntity);
       await switchTurnOff(switchEntity);
-      await sleep(cfg.autoRemoveGroupDelayMs);
+      // No fixed group-removal delay. Continue as soon as HA confirms OFF.
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        try {
+          const state = await haRequest(`/states/${encodeURIComponent(switchEntity)}`);
+          if (String(state?.state || '').toLowerCase() === 'off') break;
+        } catch (_) {
+          break;
+        }
+        await sleep(40);
+      }
     } catch (error) {
       log('warn', `[${this.definition.name}] Could not remove player from M1S group before playback.`, error?.message || String(error));
     }
@@ -855,10 +890,9 @@ class M1SPlayer extends Player {
       return true;
     }
 
-    // Mirror the manual sequence that is known to synchronize the hubs:
-    // HA STOP first while the old HTTP stream still exists, wait for HA to
-    // report the group stopped, then give the hub/ALSA transport 500 ms to
-    // settle before the next YT/YTM Play.
+    // Keep one clean source boundary: HA STOP first while the old HTTP stream
+    // still exists, wait only for the real HA stopped state, then start the new
+    // YT/YTM transport immediately. No fixed settle sleep is used.
     const expectedPath = this.expectedStreamPath();
     let lastError = null;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -867,8 +901,7 @@ class M1SPlayer extends Player {
         const stopped = await this.waitUntilTargetStopped(expectedPath);
         if (!stopped) throw new Error('group did not reach a stopped state before Play');
         killActiveAudio(this.definition.key);
-        await sleep(500);
-        log('debug', `[${this.definition.name}] Clean group STOP confirmed; 500 ms settle completed before Play.`);
+        log('debug', `[${this.definition.name}] Clean group STOP confirmed; starting new transport without a fixed settle delay.`);
         return true;
       } catch (error) {
         lastError = error;
@@ -911,12 +944,10 @@ class M1SPlayer extends Player {
 
     this.playGeneration += 1;
     const generation = this.playGeneration;
-    const previousDuration = this.currentVideoId === id ? this.duration : 0;
     this.currentVideo = video;
     this.currentVideoId = id;
     this.title = String(video?.title || `YouTube ${id}`);
-    this.duration = Number(video?.duration || 0) || previousDuration || 0;
-    const durationLookup = this.duration > 0 ? null : getMetadata(id);
+    this.duration = Number(video?.duration || 0) || 0;
 
     // Resolve a real title before the single HA play_media call when the sender
     // only supplies a video id. This is the lightweight title fix from v0.3.9.
@@ -932,34 +963,6 @@ class M1SPlayer extends Player {
     }
 
     this.basePosition = Math.max(0, Number(position) || 0);
-
-    // The integration needs the real finite-media length before FFmpeg starts,
-    // otherwise an HTTP source that never closes cleanly can keep the same tail
-    // alive forever. Prefer the duration supplied by the Cast queue; only when
-    // it is absent do one metadata lookup before Play. The result is cached, so
-    // seek / replay of the same item does not repeat the lookup.
-    if (!(this.duration > 0) && durationLookup) {
-      try {
-        const metadata = await durationLookup;
-        if (generation !== this.playGeneration || id !== this.currentVideoId) return false;
-        this.duration = Number(metadata?.duration || 0) || 0;
-        if ((!video?.title || this.title === `YouTube ${id}`) && metadata?.title) {
-          this.title = String(metadata.title);
-        }
-        log(
-          'debug',
-          `[${this.definition.name}] Finite-media duration ready before Play.`,
-          this.duration > 0 ? `${this.duration.toFixed(3)}s` : 'unknown'
-        );
-      } catch (error) {
-        log(
-          'warn',
-          `[${this.definition.name}] Could not resolve duration before Play; falling back to natural EOF.`,
-          error?.message || String(error)
-        );
-      }
-    }
-
     this.startedAt = null;
     this.paused = false;
     this.clearEndTimer();
@@ -988,20 +991,35 @@ class M1SPlayer extends Player {
           title: this.title,
           m1s_youtube_cast_receiver: true,
           video_id: id,
-          stream_serial: stream.serial,
-          yt_duration_seconds: this.duration > 0 ? this.duration : null,
-          yt_start_position_seconds: this.basePosition
+          stream_serial: stream.serial
         }
       });
 
-      // Home Assistant accepted our exact stream: this Cast session now owns
-      // the target again. A fresh explicit Play is allowed to reacquire it.
+      // HA accepting play_media means only that the request was queued. Keep the
+      // Cast sender in LOADING until the integration publishes our exact serial
+      // at the boundary where first PCM is released to the hub(s).
       this.ownsTarget = true;
       this.sessionRelinquished = false;
+      const expectedPath = this.expectedStreamPath();
+      const transportStarted = await this.waitForTransportStarted(stream.serial, expectedPath, 15000);
+      if (!transportStarted || generation !== this.playGeneration) {
+        log('error', `[${this.definition.name}] Integration did not confirm YT/YTM transport start.`, `serial=${stream.serial}`);
+        try {
+          if (generation === this.playGeneration && await this.targetStillOwnedByYoutube()) {
+            await haService(this.definition.entityId, 'media_stop');
+          }
+        } catch (_) {
+          // Best-effort cleanup only; never publish PLAYING without handshake.
+        }
+        this.startedAt = null;
+        this.currentStream = null;
+        this.ownsTarget = false;
+        return false;
+      }
 
-      // Start the logical track clock only after Home Assistant accepted Play.
-      // This deliberately biases the boundary late rather than cutting audio early.
-      if (generation === this.playGeneration) this.startedAt = Date.now();
+      // doPlay() returns true only now, so yt-cast-receiver publishes PLAYING
+      // after the hub transport actually starts instead of when HA accepts Play.
+      this.startedAt = Date.now();
 
       // Metadata is deliberately delayed and fetched in the background so it does
       // not compete with the first audio extraction during startup.
