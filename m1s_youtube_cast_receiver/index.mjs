@@ -1015,7 +1015,7 @@ class M1SPlayer extends Player {
     // Only an explicit Play may reacquire a target after Radio/another HA source
     // took it away. Stale Pause/Seek/Next/Previous are guarded below.
     this.sessionRelinquished = false;
-    return this.startAt(video, position, 7000);
+    return this.startAt(video, position, 5000);
   }
 
   async next(AID) {

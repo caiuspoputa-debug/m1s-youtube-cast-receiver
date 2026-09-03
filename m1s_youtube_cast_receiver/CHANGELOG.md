@@ -1,3 +1,8 @@
+## 0.3.43
+- Group YT/YTM initial Play LOADING hold reduced from 7s to 5s.
+- Seek/Resume remain at 4s.
+- No acceleration is present; all other playback behavior remains unchanged from 0.3.42.
+
 ## 0.3.42
 - Removed all active YT/YTM playback acceleration from both the M1S group and individual receivers.
 - Removed the `atempo` FFmpeg speed filters and `X-M1S-YT-Speed` response headers; audio is streamed directly from yt-dlp again.
