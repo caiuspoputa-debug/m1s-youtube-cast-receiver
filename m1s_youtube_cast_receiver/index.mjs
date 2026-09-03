@@ -689,67 +689,10 @@ class M1SPlayer extends Player {
   scheduleEndTransition(generation) {
     this.clearEndTimer();
     if (generation !== this.playGeneration) return;
+
+    // Natural EOF only: the HA/M1S playback state is authoritative.
+    // Do not force-stop the group from YT/YTM duration/currentPosition guesses.
     this.startCompletionMonitor(generation);
-    if (
-      !this.definition.isGroup
-      || this.paused
-      || this.startedAt === null
-      || !(this.duration > 0)
-    ) return;
-
-    const remainingSeconds = Math.max(0, this.duration - this.currentPosition());
-    const delayMs = Math.max(250, Math.round((remainingSeconds + 0.75) * 1000));
-    this.endTimer = setTimeout(() => {
-      this.endTimer = null;
-      void this.handleGroupDurationBoundary(generation);
-    }, delayMs);
-    log('debug', `[${this.definition.name}] Group end guard armed in ${(delayMs / 1000).toFixed(2)}s.`);
-  }
-
-  async handleGroupDurationBoundary(generation) {
-    if (
-      generation !== this.playGeneration
-      || !this.definition.isGroup
-      || this.paused
-      || this.startedAt === null
-      || this.endTransitionRunning
-    ) return;
-
-    const expectedPath = this.expectedStreamPath();
-    if (!expectedPath) return;
-    try {
-      const snapshot = await this.readTargetPlaybackState();
-      const active = snapshot.state === 'playing' || snapshot.state === 'buffering';
-      const isOurSource = Boolean(snapshot.mediaId && snapshot.mediaId.includes(expectedPath));
-      if (!active || !isOurSource) return;
-
-      this.cancelCompletionMonitor();
-      let stopped = false;
-      let lastError = null;
-      for (let attempt = 1; attempt <= 3; attempt += 1) {
-        try {
-          await haService(this.definition.entityId, 'media_stop');
-          stopped = await this.waitUntilTargetStopped(expectedPath, 2200);
-          if (stopped) break;
-          throw new Error('group remained active after duration boundary STOP');
-        } catch (error) {
-          lastError = error;
-          if (attempt < 3) await sleep(180 * attempt);
-        }
-      }
-      if (!stopped) {
-        log('error', `[${this.definition.name}] Group end guard could not stop the finished track.`, lastError?.message || 'unknown error');
-        return;
-      }
-
-      killActiveAudio(this.definition.key);
-      this.currentStream = null;
-      this.groupBoundaryPreStopped = true;
-      log('info', `[${this.definition.name}] Group duration boundary reached; transport stopped cleanly.`);
-      await this.handlePlaybackEnded(generation);
-    } catch (error) {
-      log('error', `[${this.definition.name}] Group end guard failed.`, error?.message || String(error));
-    }
   }
 
   async handlePlaybackEnded(generation) {

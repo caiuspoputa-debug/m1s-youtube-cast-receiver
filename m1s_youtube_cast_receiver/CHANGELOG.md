@@ -1,3 +1,9 @@
+## 0.3.44
+- Group YT/YTM natural-end logic now relies only on the real Home Assistant/M1S playback state transition to EOF/idle.
+- Removed the group duration/currentPosition end guard that force-stopped playback and requested Next on a calculated timer.
+- Initial group Play remains 5s; Seek/Resume remain 4s; no audio acceleration is used.
+- No integration, ownership, mapping, Radio, or individual-player behavior changed.
+
 ## 0.3.43
 - Group YT/YTM initial Play LOADING hold reduced from 7s to 5s.
 - Seek/Resume remain at 4s.
