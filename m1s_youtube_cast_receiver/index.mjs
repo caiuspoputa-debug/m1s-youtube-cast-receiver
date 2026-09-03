@@ -572,38 +572,12 @@ class M1SPlayer extends Player {
         maxAlsaDelaySeconds = Math.max(maxAlsaDelaySeconds, frames / 32000);
       }
     }
-    const startedRaw = attrs.ytm_transport_started_serial;
-    const streamRaw = attrs.ytm_stream_serial;
-    const startedSerial = startedRaw === null || startedRaw === undefined ? null : Number(startedRaw);
-    const streamSerial = streamRaw === null || streamRaw === undefined ? null : Number(streamRaw);
     return {
       state: String(state?.state || '').toLowerCase(),
       mediaId: String(attrs.media_content_id || attrs.media_content_url || attrs.last_media_id || ''),
       remotePrefillSeconds: Number(attrs.group_remote_prefill_seconds || 0) || 0,
-      maxAlsaDelaySeconds,
-      ytmStreamSerial: Number.isSafeInteger(streamSerial) ? streamSerial : null,
-      ytmTransportStartedSerial: Number.isSafeInteger(startedSerial) ? startedSerial : null
+      maxAlsaDelaySeconds
     };
-  }
-
-  async waitForTransportStarted(serial, expectedPath, timeoutMs = 15000) {
-    const wanted = Number(serial);
-    const deadline = Date.now() + Math.max(1000, Number(timeoutMs) || 15000);
-    while (Date.now() < deadline) {
-      try {
-        const snapshot = await this.readTargetPlaybackState();
-        const isOurSource = Boolean(snapshot.mediaId && expectedPath && snapshot.mediaId.includes(expectedPath));
-        if (isOurSource && snapshot.ytmTransportStartedSerial === wanted) {
-          log('debug', `[${this.definition.name}] Integration confirmed audible YT/YTM transport start.`, `serial=${wanted}`);
-          return true;
-        }
-        if (snapshot.mediaId && expectedPath && !isOurSource) return false;
-      } catch (error) {
-        log('debug', `[${this.definition.name}] Waiting for integration transport-start handshake.`, error?.message || String(error));
-      }
-      await sleep(40);
-    }
-    return false;
   }
 
   async targetStillOwnedByYoutube() {
@@ -715,17 +689,27 @@ class M1SPlayer extends Player {
   scheduleEndTransition(generation) {
     this.clearEndTimer();
     if (generation !== this.playGeneration) return;
-
-    // v0.3.29: no advertised-duration timer at all. Track completion is driven
-    // exclusively by the real HA/integration EOF state observed below. This
-    // prevents the add-on from cutting YT/YTM at the metadata duration before
-    // the hub playback pipeline has actually finished.
     this.startCompletionMonitor(generation);
+    if (
+      !this.definition.isGroup
+      || this.paused
+      || this.startedAt === null
+      || !(this.duration > 0)
+    ) return;
+
+    const remainingSeconds = Math.max(0, this.duration - this.currentPosition());
+    const delayMs = Math.max(250, Math.round((remainingSeconds + 0.75) * 1000));
+    this.endTimer = setTimeout(() => {
+      this.endTimer = null;
+      void this.handleGroupDurationBoundary(generation);
+    }, delayMs);
+    log('debug', `[${this.definition.name}] Group end guard armed in ${(delayMs / 1000).toFixed(2)}s.`);
   }
 
   async handleGroupDurationBoundary(generation) {
     if (
       generation !== this.playGeneration
+      || !this.definition.isGroup
       || this.paused
       || this.startedAt === null
       || this.endTransitionRunning
@@ -738,16 +722,6 @@ class M1SPlayer extends Player {
       const active = snapshot.state === 'playing' || snapshot.state === 'buffering';
       const isOurSource = Boolean(snapshot.mediaId && snapshot.mediaId.includes(expectedPath));
       if (!active || !isOurSource) return;
-
-      // Individual YT/YTM uses the normal Player next/stop path so the existing
-      // v0.3.7 group-membership session memory remains untouched between tracks.
-      // The group keeps its established clean transport STOP boundary below.
-      if (!this.definition.isGroup) {
-        this.cancelCompletionMonitor();
-        log('info', `[${this.definition.name}] YT/YTM duration +0s safety boundary reached; requesting next queue item.`);
-        await this.handlePlaybackEnded(generation);
-        return;
-      }
 
       this.cancelCompletionMonitor();
       let stopped = false;
@@ -841,16 +815,7 @@ class M1SPlayer extends Player {
     try {
       log('info', `[${this.definition.name}] Removing individual player from M1S group before playback.`, switchEntity);
       await switchTurnOff(switchEntity);
-      // No fixed group-removal delay. Continue as soon as HA confirms OFF.
-      for (let attempt = 0; attempt < 20; attempt += 1) {
-        try {
-          const state = await haRequest(`/states/${encodeURIComponent(switchEntity)}`);
-          if (String(state?.state || '').toLowerCase() === 'off') break;
-        } catch (_) {
-          break;
-        }
-        await sleep(40);
-      }
+      await sleep(cfg.autoRemoveGroupDelayMs);
     } catch (error) {
       log('warn', `[${this.definition.name}] Could not remove player from M1S group before playback.`, error?.message || String(error));
     }
@@ -890,9 +855,10 @@ class M1SPlayer extends Player {
       return true;
     }
 
-    // Keep one clean source boundary: HA STOP first while the old HTTP stream
-    // still exists, wait only for the real HA stopped state, then start the new
-    // YT/YTM transport immediately. No fixed settle sleep is used.
+    // Mirror the manual sequence that is known to synchronize the hubs:
+    // HA STOP first while the old HTTP stream still exists, wait for HA to
+    // report the group stopped, then give the hub/ALSA transport 500 ms to
+    // settle before the next YT/YTM Play.
     const expectedPath = this.expectedStreamPath();
     let lastError = null;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -901,7 +867,8 @@ class M1SPlayer extends Player {
         const stopped = await this.waitUntilTargetStopped(expectedPath);
         if (!stopped) throw new Error('group did not reach a stopped state before Play');
         killActiveAudio(this.definition.key);
-        log('debug', `[${this.definition.name}] Clean group STOP confirmed; starting new transport without a fixed settle delay.`);
+        await sleep(500);
+        log('debug', `[${this.definition.name}] Clean group STOP confirmed; 500 ms settle completed before Play.`);
         return true;
       } catch (error) {
         lastError = error;
@@ -995,31 +962,14 @@ class M1SPlayer extends Player {
         }
       });
 
-      // HA accepting play_media means only that the request was queued. Keep the
-      // Cast sender in LOADING until the integration publishes our exact serial
-      // at the boundary where first PCM is released to the hub(s).
+      // Home Assistant accepted our exact stream: this Cast session now owns
+      // the target again. A fresh explicit Play is allowed to reacquire it.
       this.ownsTarget = true;
       this.sessionRelinquished = false;
-      const expectedPath = this.expectedStreamPath();
-      const transportStarted = await this.waitForTransportStarted(stream.serial, expectedPath, 15000);
-      if (!transportStarted || generation !== this.playGeneration) {
-        log('error', `[${this.definition.name}] Integration did not confirm YT/YTM transport start.`, `serial=${stream.serial}`);
-        try {
-          if (generation === this.playGeneration && await this.targetStillOwnedByYoutube()) {
-            await haService(this.definition.entityId, 'media_stop');
-          }
-        } catch (_) {
-          // Best-effort cleanup only; never publish PLAYING without handshake.
-        }
-        this.startedAt = null;
-        this.currentStream = null;
-        this.ownsTarget = false;
-        return false;
-      }
 
-      // doPlay() returns true only now, so yt-cast-receiver publishes PLAYING
-      // after the hub transport actually starts instead of when HA accepts Play.
-      this.startedAt = Date.now();
+      // Start the logical track clock only after Home Assistant accepted Play.
+      // This deliberately biases the boundary late rather than cutting audio early.
+      if (generation === this.playGeneration) this.startedAt = Date.now();
 
       // Metadata is deliberately delayed and fetched in the background so it does
       // not compete with the first audio extraction during startup.
