@@ -388,20 +388,6 @@ function getMetadata(videoId) {
 
 let streamSerial = 0;
 const activeAudioChildren = new Map();
-// Once a finite yt-dlp stream reaches a clean EOF, never serve the same
-// receiver/video/serial URL again. Some HA/M1S transport paths retry a closed
-// HTTP URL; replaying it would restart the same song from the beginning.
-const completedAudioStreams = new Map();
-
-function audioStreamToken(receiverKey, videoId, serial) {
-  return `${receiverKey}:${videoId}:${serial}`;
-}
-
-function pruneCompletedAudioStreams(now = Date.now()) {
-  for (const [token, finishedAt] of completedAudioStreams.entries()) {
-    if (now - finishedAt > 15 * 60 * 1000) completedAudioStreams.delete(token);
-  }
-}
 const runtimePlayersByKey = new Map();
 let receiverDefinitions = [];
 let receiverDefinitionsByKey = new Map();
@@ -458,18 +444,6 @@ const audioServer = http.createServer((req, res) => {
     return;
   }
 
-  const streamToken = audioStreamToken(receiverKey, videoId, serial);
-  pruneCompletedAudioStreams();
-  if (completedAudioStreams.has(streamToken)) {
-    log('debug', `[${def.name}] Refusing replay of completed audio stream: ${videoId} serial=${serial}`);
-    res.writeHead(410, {
-      'Cache-Control': 'no-store',
-      'Connection': 'close'
-    });
-    res.end('Audio stream already completed');
-    return;
-  }
-
   const start = Math.max(0, Number(parsed.searchParams.get('start') || 0) || 0);
   log('info', `[${def.name}] Audio requested: ${videoId}`, start > 0.5 ? `from ${start.toFixed(1)}s` : '');
   killActiveAudio(receiverKey);
@@ -509,8 +483,7 @@ const audioServer = http.createServer((req, res) => {
     if (code !== 0 && code !== null) {
       log('error', `[${def.name}] yt-dlp audio exited with code ${code}`, stderr.trim().slice(-1200));
     } else {
-      completedAudioStreams.set(streamToken, Date.now());
-      log('info', `[${def.name}] yt-dlp source EOF reached for ${videoId} serial=${serial}; replay blocked while player drains normally.`);
+      log('info', `[${def.name}] yt-dlp source EOF reached for ${videoId} serial=${serial}; HTTP stream closed normally.`);
     }
     if (!res.writableEnded) res.end();
   });

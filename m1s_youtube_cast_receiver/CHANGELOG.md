@@ -1,3 +1,8 @@
+## 0.3.50
+- Removed the completed-audio replay registry and its HTTP `410 Gone` response.
+- A repeated request for the same receiver/video/serial URL is served normally again instead of being rejected.
+- No other playback, timing, duration, queue, audio, ownership, Radio, group-membership, Play 5s or Seek/Resume 4s behavior changed from 0.3.49.
+
 ## 0.3.49
 - YT/YTM/Cast now reports the track duration as the real metadata duration plus 7 seconds.
 - This is sender-timeline only: audio bytes, playback speed, EOF handling, queue drain, Play 5s and Seek/Resume 4s are unchanged from 0.3.48.
