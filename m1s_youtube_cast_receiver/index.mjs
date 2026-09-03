@@ -911,10 +911,12 @@ class M1SPlayer extends Player {
 
     this.playGeneration += 1;
     const generation = this.playGeneration;
+    const previousDuration = this.currentVideoId === id ? this.duration : 0;
     this.currentVideo = video;
     this.currentVideoId = id;
     this.title = String(video?.title || `YouTube ${id}`);
-    this.duration = Number(video?.duration || 0) || 0;
+    this.duration = Number(video?.duration || 0) || previousDuration || 0;
+    const durationLookup = this.duration > 0 ? null : getMetadata(id);
 
     // Resolve a real title before the single HA play_media call when the sender
     // only supplies a video id. This is the lightweight title fix from v0.3.9.
@@ -930,6 +932,34 @@ class M1SPlayer extends Player {
     }
 
     this.basePosition = Math.max(0, Number(position) || 0);
+
+    // The integration needs the real finite-media length before FFmpeg starts,
+    // otherwise an HTTP source that never closes cleanly can keep the same tail
+    // alive forever. Prefer the duration supplied by the Cast queue; only when
+    // it is absent do one metadata lookup before Play. The result is cached, so
+    // seek / replay of the same item does not repeat the lookup.
+    if (!(this.duration > 0) && durationLookup) {
+      try {
+        const metadata = await durationLookup;
+        if (generation !== this.playGeneration || id !== this.currentVideoId) return false;
+        this.duration = Number(metadata?.duration || 0) || 0;
+        if ((!video?.title || this.title === `YouTube ${id}`) && metadata?.title) {
+          this.title = String(metadata.title);
+        }
+        log(
+          'debug',
+          `[${this.definition.name}] Finite-media duration ready before Play.`,
+          this.duration > 0 ? `${this.duration.toFixed(3)}s` : 'unknown'
+        );
+      } catch (error) {
+        log(
+          'warn',
+          `[${this.definition.name}] Could not resolve duration before Play; falling back to natural EOF.`,
+          error?.message || String(error)
+        );
+      }
+    }
+
     this.startedAt = null;
     this.paused = false;
     this.clearEndTimer();
@@ -958,7 +988,9 @@ class M1SPlayer extends Player {
           title: this.title,
           m1s_youtube_cast_receiver: true,
           video_id: id,
-          stream_serial: stream.serial
+          stream_serial: stream.serial,
+          yt_duration_seconds: this.duration > 0 ? this.duration : null,
+          yt_start_position_seconds: this.basePosition
         }
       });
 

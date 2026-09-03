@@ -1,3 +1,8 @@
+## 0.3.30
+- YT/YTM now sends the finite track duration and requested start position to the Aqara M1S integration.
+- If the Cast queue does not already contain a duration, the add-on resolves it once before Play and caches it.
+- No advertised-duration end timer was reintroduced; completion still follows the integration's real EOF/receiver drain state.
+
 ## 0.3.29
 
 - Removed the YT/YTM advertised-duration end timer completely.
