@@ -467,7 +467,7 @@ const audioServer = http.createServer((req, res) => {
       '-hide_banner', '-loglevel', 'error',
       '-i', 'pipe:0',
       '-vn',
-      '-filter:a', 'atempo=1.11',
+      '-filter:a', 'atempo=1.13',
       '-c:a', 'libopus', '-b:a', '160k',
       '-f', 'ogg', 'pipe:1'
     ], { stdio: ['pipe', 'pipe', 'pipe'] });
