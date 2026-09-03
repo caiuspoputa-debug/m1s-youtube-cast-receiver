@@ -1155,7 +1155,9 @@ class M1SPlayer extends Player {
   }
 
   async doGetDuration() {
-    return this.duration;
+    // Sender-only timeline experiment: report 7 seconds more to YT/YTM/Cast.
+    // The real audio stream, EOF handling and HA/M1S transport stay unchanged.
+    return this.duration > 0 ? this.duration + 7 : this.duration;
   }
 }
 

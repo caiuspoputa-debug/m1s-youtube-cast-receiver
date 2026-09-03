@@ -1,3 +1,7 @@
+## 0.3.49
+- YT/YTM/Cast now reports the track duration as the real metadata duration plus 7 seconds.
+- This is sender-timeline only: audio bytes, playback speed, EOF handling, queue drain, Play 5s and Seek/Resume 4s are unchanged from 0.3.48.
+
 ## 0.3.48
 - Rebased on 0.3.46; the experimental 0.3.47 finite-file/Range transport is not used.
 - Group natural EOF now drains the integration-reported per-member PCM queue plus the current/fallback hub ALSA prefill before requesting Next.
