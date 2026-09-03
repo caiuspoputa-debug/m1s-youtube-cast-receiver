@@ -467,7 +467,7 @@ const audioServer = http.createServer((req, res) => {
       '-hide_banner', '-loglevel', 'error',
       '-i', 'pipe:0',
       '-vn',
-      '-filter:a', 'atempo=1.04',
+      '-filter:a', 'atempo=1.06',
       '-c:a', 'libopus', '-b:a', '160k',
       '-f', 'ogg', 'pipe:1'
     ], { stdio: ['pipe', 'pipe', 'pipe'] });
@@ -490,7 +490,7 @@ const audioServer = http.createServer((req, res) => {
       'Cache-Control': 'no-store',
       'Connection': 'close',
       'X-M1S-YT-Stream-Serial': String(serial),
-      'X-M1S-YT-Speed': '1.04'
+      'X-M1S-YT-Speed': '1.06'
     });
 
     ytdlp.stdout.pipe(ffmpeg.stdin);
