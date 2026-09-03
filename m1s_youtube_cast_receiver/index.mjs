@@ -388,20 +388,27 @@ function getMetadata(videoId) {
 
 let streamSerial = 0;
 const activeAudioChildren = new Map();
-// Once a finite yt-dlp stream reaches a clean EOF, never serve the same
-// receiver/video/serial URL again. Some HA/M1S transport paths retry a closed
-// HTTP URL; replaying it would restart the same song from the beginning.
-const completedAudioStreams = new Map();
+const audioFileStates = new Map();
+const AUDIO_CACHE_DIR = '/tmp/m1s-youtube-cast';
+fs.mkdirSync(AUDIO_CACHE_DIR, { recursive: true });
 
 function audioStreamToken(receiverKey, videoId, serial) {
   return `${receiverKey}:${videoId}:${serial}`;
 }
 
-function pruneCompletedAudioStreams(now = Date.now()) {
-  for (const [token, finishedAt] of completedAudioStreams.entries()) {
-    if (now - finishedAt > 15 * 60 * 1000) completedAudioStreams.delete(token);
+function audioFilePath(receiverKey, videoId, serial) {
+  return path.join(AUDIO_CACHE_DIR, `${safeKey(receiverKey)}-${videoId}-${serial}.audio`);
+}
+
+function pruneAudioFileStates(now = Date.now()) {
+  for (const [token, state] of audioFileStates.entries()) {
+    if (state.downloading) continue;
+    if (now - state.lastAccess <= 15 * 60 * 1000) continue;
+    try { fs.unlinkSync(state.filePath); } catch (_) {}
+    audioFileStates.delete(token);
   }
 }
+
 const runtimePlayersByKey = new Map();
 let receiverDefinitions = [];
 let receiverDefinitionsByKey = new Map();
@@ -425,7 +432,173 @@ function killAllAudio() {
   for (const key of activeAudioChildren.keys()) killActiveAudio(key);
 }
 
-const audioServer = http.createServer((req, res) => {
+function parseByteRange(value, size) {
+  const match = String(value || '').match(/^bytes=(\d*)-(\d*)$/i);
+  if (!match) return null;
+  let start = match[1] === '' ? null : Number(match[1]);
+  let end = match[2] === '' ? null : Number(match[2]);
+  if (start === null) {
+    const suffix = Math.max(0, end || 0);
+    if (!suffix) return null;
+    start = Math.max(0, size - suffix);
+    end = size - 1;
+  } else {
+    if (!Number.isSafeInteger(start) || start < 0 || start >= size) return null;
+    if (end === null || !Number.isSafeInteger(end) || end >= size) end = size - 1;
+    if (end < start) return null;
+  }
+  return { start, end };
+}
+
+function ensureAudioFile(receiverKey, videoId, serial, startSeconds, def) {
+  const token = audioStreamToken(receiverKey, videoId, serial);
+  const existing = audioFileStates.get(token);
+  if (existing) {
+    existing.lastAccess = Date.now();
+    return existing.promise;
+  }
+
+  pruneAudioFileStates();
+  killActiveAudio(receiverKey);
+  const filePath = audioFilePath(receiverKey, videoId, serial);
+  try { fs.unlinkSync(filePath); } catch (_) {}
+
+  const state = {
+    filePath,
+    downloading: true,
+    lastAccess: Date.now(),
+    nextOffset: 0,
+    size: 0,
+    promise: null
+  };
+  audioFileStates.set(token, state);
+
+  const args = [
+    '--no-playlist', '--quiet', '--no-warnings', '--js-runtimes', 'node',
+    '--no-part',
+    '-f', 'bestaudio[ext=webm]/bestaudio',
+    '-o', filePath
+  ];
+  if (startSeconds > 0.5) args.push('--download-sections', `*${startSeconds}-`);
+  args.push(`https://www.youtube.com/watch?v=${videoId}`);
+
+  state.promise = new Promise((resolve, reject) => {
+    const child = spawn(YTDLP, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    activeAudioChildren.set(receiverKey, child);
+    let stderr = '';
+
+    child.stderr.on('data', (chunk) => {
+      if (stderr.length < 64 * 1024) stderr += chunk.toString();
+    });
+    child.on('error', (error) => {
+      state.downloading = false;
+      if (activeAudioChildren.get(receiverKey) === child) activeAudioChildren.delete(receiverKey);
+      try { fs.unlinkSync(filePath); } catch (_) {}
+      audioFileStates.delete(token);
+      reject(error);
+    });
+    child.on('close', (code) => {
+      state.downloading = false;
+      if (activeAudioChildren.get(receiverKey) === child) activeAudioChildren.delete(receiverKey);
+      if (code !== 0 && code !== null) {
+        try { fs.unlinkSync(filePath); } catch (_) {}
+        audioFileStates.delete(token);
+        reject(new Error(`yt-dlp audio exited with code ${code}: ${stderr.trim().slice(-1200)}`));
+        return;
+      }
+      try {
+        const stat = fs.statSync(filePath);
+        if (!(stat.size > 0)) throw new Error('downloaded audio file is empty');
+        state.size = stat.size;
+        state.lastAccess = Date.now();
+        log('info', `[${def.name}] Finite audio ready: ${videoId} serial=${serial} bytes=${stat.size}`);
+        resolve(state);
+      } catch (error) {
+        try { fs.unlinkSync(filePath); } catch (_) {}
+        audioFileStates.delete(token);
+        reject(error);
+      }
+    });
+  });
+
+  return state.promise;
+}
+
+function serveFiniteAudio(req, res, state, def, videoId, serial) {
+  state.lastAccess = Date.now();
+  const size = state.size || fs.statSync(state.filePath).size;
+  const requestedRange = req.headers.range ? parseByteRange(req.headers.range, size) : null;
+
+  let startByte = 0;
+  let endByte = size - 1;
+  let status = 200;
+
+  if (req.headers.range) {
+    if (!requestedRange) {
+      res.writeHead(416, {
+        'Content-Range': `bytes */${size}`,
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'no-store'
+      });
+      res.end();
+      return;
+    }
+    startByte = requestedRange.start;
+    endByte = requestedRange.end;
+    status = 206;
+  } else if (state.nextOffset > 0) {
+    // Some M1S/HA paths reopen the same URL without sending Range. Resume from
+    // the last byte already handed to the previous HTTP response instead of
+    // restarting at byte zero or refusing the remaining tail.
+    if (state.nextOffset >= size) {
+      res.writeHead(416, {
+        'Content-Range': `bytes */${size}`,
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'no-store'
+      });
+      res.end();
+      log('debug', `[${def.name}] Completed finite stream requested again: ${videoId} serial=${serial}`);
+      return;
+    }
+    startByte = state.nextOffset;
+    status = 206;
+  }
+
+  const headers = {
+    'Content-Type': 'application/octet-stream',
+    'Content-Length': String(endByte - startByte + 1),
+    'Accept-Ranges': 'bytes',
+    'Cache-Control': 'no-store',
+    'X-M1S-YT-Stream-Serial': String(serial)
+  };
+  if (status === 206) headers['Content-Range'] = `bytes ${startByte}-${endByte}/${size}`;
+  res.writeHead(status, headers);
+  if (req.method === 'HEAD') {
+    res.end();
+    return;
+  }
+
+  const stream = fs.createReadStream(state.filePath, { start: startByte, end: endByte });
+  let handedBytes = 0;
+  const rememberProgress = () => {
+    const offset = Math.min(size, startByte + handedBytes);
+    if (offset > state.nextOffset) state.nextOffset = offset;
+    state.lastAccess = Date.now();
+  };
+  stream.on('data', (chunk) => { handedBytes += chunk.length; });
+  stream.on('end', rememberProgress);
+  stream.on('error', (error) => {
+    log('error', `[${def.name}] Finite audio read failed: ${error.message}`);
+    if (!res.destroyed) res.destroy(error);
+  });
+  res.on('close', () => {
+    rememberProgress();
+    log('debug', `[${def.name}] Finite audio connection closed at ${state.nextOffset}/${size} bytes for ${videoId} serial=${serial}`);
+  });
+  stream.pipe(res);
+}
+
+const audioServer = http.createServer(async (req, res) => {
   const parsed = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   if (parsed.pathname === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -458,68 +631,22 @@ const audioServer = http.createServer((req, res) => {
     return;
   }
 
-  const streamToken = audioStreamToken(receiverKey, videoId, serial);
-  pruneCompletedAudioStreams();
-  if (completedAudioStreams.has(streamToken)) {
-    log('debug', `[${def.name}] Refusing replay of completed audio stream: ${videoId} serial=${serial}`);
-    res.writeHead(410, {
-      'Cache-Control': 'no-store',
-      'Connection': 'close'
-    });
-    res.end('Audio stream already completed');
-    return;
-  }
-
   const start = Math.max(0, Number(parsed.searchParams.get('start') || 0) || 0);
   log('info', `[${def.name}] Audio requested: ${videoId}`, start > 0.5 ? `from ${start.toFixed(1)}s` : '');
-  killActiveAudio(receiverKey);
 
-  const args = [
-    '--no-playlist', '--quiet', '--no-warnings', '--js-runtimes', 'node',
-    '-f', 'bestaudio[ext=webm]/bestaudio',
-    '-o', '-'
-  ];
-  if (start > 0.5) args.push('--download-sections', `*${start}-`);
-  args.push(`https://www.youtube.com/watch?v=${videoId}`);
-
-  const child = spawn(YTDLP, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-  activeAudioChildren.set(receiverKey, child);
-  const player = runtimePlayersByKey.get(receiverKey);
-  let stderr = '';
-  let childClosed = false;
-
-  res.writeHead(200, {
-    'Content-Type': 'application/octet-stream',
-    'Cache-Control': 'no-store',
-    'Connection': 'close',
-    'X-M1S-YT-Stream-Serial': String(serial)
-  });
-
-  child.stdout.pipe(res);
-  child.stderr.on('data', (chunk) => {
-    if (stderr.length < 64 * 1024) stderr += chunk.toString();
-  });
-  child.on('error', (error) => {
-    log('error', `[${def.name}] yt-dlp stream process error: ${error.message}`);
-    if (!res.destroyed) res.destroy(error);
-  });
-  child.on('close', (code) => {
-    childClosed = true;
-    if (activeAudioChildren.get(receiverKey) === child) activeAudioChildren.delete(receiverKey);
-    if (code !== 0 && code !== null) {
-      log('error', `[${def.name}] yt-dlp audio exited with code ${code}`, stderr.trim().slice(-1200));
-    } else {
-      completedAudioStreams.set(streamToken, Date.now());
-      log('info', `[${def.name}] yt-dlp source EOF reached for ${videoId} serial=${serial}; replay blocked while player drains normally.`);
+  try {
+    const state = await ensureAudioFile(receiverKey, videoId, serial, start, def);
+    if (res.destroyed) return;
+    serveFiniteAudio(req, res, state, def, videoId, serial);
+  } catch (error) {
+    log('error', `[${def.name}] Could not prepare finite audio: ${error.message}`);
+    if (!res.headersSent && !res.destroyed) {
+      res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end('Audio preparation failed');
+    } else if (!res.destroyed) {
+      res.destroy(error);
     }
-    if (!res.writableEnded) res.end();
-  });
-  res.on('close', () => {
-    if (!res.writableEnded && !childClosed) {
-      player?.handleStreamInterrupted(serial, videoId, 'audio client closed the stream');
-      if (!child.killed) child.kill('SIGTERM');
-    }
-  });
+  }
 });
 
 class M1SPlayer extends Player {
