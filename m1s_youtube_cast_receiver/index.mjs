@@ -456,9 +456,92 @@ const audioServer = http.createServer((req, res) => {
   if (start > 0.5) args.push('--download-sections', `*${start}-`);
   args.push(`https://www.youtube.com/watch?v=${videoId}`);
 
+  const player = runtimePlayersByKey.get(receiverKey);
+
+  // Diagnostic timing test requested for the M1S group only: compress YT/YTM
+  // audio time by 3% before Home Assistant receives it. Individual players keep
+  // the proven direct yt-dlp stream unchanged.
+  if (def.isGroup) {
+    const ytdlp = spawn(YTDLP, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const ffmpeg = spawn('ffmpeg', [
+      '-hide_banner', '-loglevel', 'error',
+      '-i', 'pipe:0',
+      '-vn',
+      '-filter:a', 'atempo=1.03',
+      '-c:a', 'libopus', '-b:a', '160k',
+      '-f', 'ogg', 'pipe:1'
+    ], { stdio: ['pipe', 'pipe', 'pipe'] });
+
+    const pipeline = {
+      killed: false,
+      kill(signal = 'SIGTERM') {
+        this.killed = true;
+        if (!ytdlp.killed) ytdlp.kill(signal);
+        if (!ffmpeg.killed) ffmpeg.kill(signal);
+      }
+    };
+    activeAudioChildren.set(receiverKey, pipeline);
+    let ytdlpStderr = '';
+    let ffmpegStderr = '';
+    let pipelineClosed = false;
+
+    res.writeHead(200, {
+      'Content-Type': 'audio/ogg',
+      'Cache-Control': 'no-store',
+      'Connection': 'close',
+      'X-M1S-YT-Stream-Serial': String(serial),
+      'X-M1S-YT-Speed': '1.03'
+    });
+
+    ytdlp.stdout.pipe(ffmpeg.stdin);
+    ffmpeg.stdout.pipe(res);
+
+    ytdlp.stderr.on('data', (chunk) => {
+      if (ytdlpStderr.length < 64 * 1024) ytdlpStderr += chunk.toString();
+    });
+    ffmpeg.stderr.on('data', (chunk) => {
+      if (ffmpegStderr.length < 64 * 1024) ffmpegStderr += chunk.toString();
+    });
+
+    ytdlp.on('error', (error) => {
+      log('error', `[${def.name}] yt-dlp stream process error: ${error.message}`);
+      pipeline.kill('SIGTERM');
+      if (!res.destroyed) res.destroy(error);
+    });
+    ffmpeg.on('error', (error) => {
+      log('error', `[${def.name}] 3% speed FFmpeg process error: ${error.message}`);
+      pipeline.kill('SIGTERM');
+      if (!res.destroyed) res.destroy(error);
+    });
+
+    ytdlp.on('close', (code) => {
+      if (code !== 0 && code !== null && !pipeline.killed) {
+        log('error', `[${def.name}] yt-dlp audio exited with code ${code}`, ytdlpStderr.trim().slice(-1200));
+      }
+    });
+
+    ffmpeg.on('close', (code) => {
+      pipelineClosed = true;
+      if (activeAudioChildren.get(receiverKey) === pipeline) activeAudioChildren.delete(receiverKey);
+      if (code !== 0 && code !== null && !pipeline.killed) {
+        log('error', `[${def.name}] 3% speed FFmpeg exited with code ${code}`, ffmpegStderr.trim().slice(-1200));
+      } else if (!pipeline.killed) {
+        log('debug', `[${def.name}] 3% speed audio finished for ${videoId}`);
+      }
+      if (!res.writableEnded) res.end();
+    });
+
+    res.on('close', () => {
+      if (!res.writableEnded && !pipelineClosed) {
+        player?.handleStreamInterrupted(serial, videoId, 'audio client closed the stream');
+        pipeline.kill('SIGTERM');
+      }
+    });
+    return;
+  }
+
   const child = spawn(YTDLP, args, { stdio: ['ignore', 'pipe', 'pipe'] });
   activeAudioChildren.set(receiverKey, child);
-  const player = runtimePlayersByKey.get(receiverKey);
   let stderr = '';
   let childClosed = false;
 
@@ -658,13 +741,8 @@ class M1SPlayer extends Player {
             // been handed to the hub pipelines. Allow only the receiver-side
             // prefill tail to drain; this is derived from the integration state,
             // not a duration/timeline guess.
-            // Group YT/YTM timing contract: keep the sender on the current item
-            // for five seconds after HA reports the source inactive so queued/
-            // receiver-side audio can finish before Next. Individual players keep
-            // the existing integration-derived tail calculation.
-            const drainMs = this.definition.isGroup
-              ? 5000
-              : Math.max(250, Math.min(3000, Math.round((Math.max(snapshot.remotePrefillSeconds, snapshot.maxAlsaDelaySeconds || 0) + 0.25) * 1000)));
+            const bufferedTailSeconds = Math.max(snapshot.remotePrefillSeconds, snapshot.maxAlsaDelaySeconds || 0);
+            const drainMs = Math.max(250, Math.min(3000, Math.round((bufferedTailSeconds + 0.25) * 1000)));
             if (drainMs > 0) await sleep(drainMs);
             if (token.cancelled || generation !== this.playGeneration) return;
 
@@ -703,7 +781,7 @@ class M1SPlayer extends Player {
     ) return;
 
     const remainingSeconds = Math.max(0, this.duration - this.currentPosition());
-    const delayMs = Math.max(250, Math.round((remainingSeconds + 5.0) * 1000));
+    const delayMs = Math.max(250, Math.round((remainingSeconds + 0.75) * 1000));
     this.endTimer = setTimeout(() => {
       this.endTimer = null;
       void this.handleGroupDurationBoundary(generation);
@@ -972,18 +1050,18 @@ class M1SPlayer extends Player {
       this.ownsTarget = true;
       this.sessionRelinquished = false;
 
-      // Group-only Cast buffering contract: keep the sender in LOADING for five
+      // Group-only Cast buffering contract: keep the sender in LOADING for four
       // seconds after HA accepted the new stream. Player.play() and Player.seek()
       // do not publish PLAYING until startAt() returns, so this applies equally to
       // an initial Play and every YT/YTM seek without touching individual players.
       if (this.definition.isGroup) {
-        log('debug', `[${this.definition.name}] Holding Cast sender in LOADING for 5.0s while group buffers.`);
-        await sleep(5000);
+        log('debug', `[${this.definition.name}] Holding Cast sender in LOADING for 4.0s while group buffers.`);
+        await sleep(4000);
         if (generation !== this.playGeneration || this.sessionRelinquished) return false;
       }
 
       // Start the logical YT/YTM clock only when the Cast sender is released from
-      // LOADING. For the group this is after the six-second buffering window.
+      // LOADING. For the group this is after the four-second buffering window.
       if (generation === this.playGeneration) this.startedAt = Date.now();
 
       // Metadata is deliberately delayed and fetched in the background so it does

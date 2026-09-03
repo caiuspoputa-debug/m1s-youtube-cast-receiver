@@ -1,3 +1,10 @@
+## 0.3.35
+
+- Group YT/YTM sender LOADING hold changed from 5 seconds to 4 seconds; the same path covers initial Play and every Seek.
+- Removed the experimental fixed 5-second end wait and restored the prior 0.3.33 EOF/drain and +0.75 s group duration-guard behavior.
+- Group YT/YTM audio only is time-compressed by 3% (`atempo=1.03`) in the add-on before Home Assistant; individual YT/YTM and Radio are unchanged.
+- No integration changes.
+
 ## 0.3.34
 
 - Group YT/YTM start hold changed from 6 seconds to 5 seconds.
