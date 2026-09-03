@@ -1,3 +1,10 @@
+## 0.3.36
+
+- Group YT/YTM audio speed test remains at 4% (`atempo=1.04`).
+- Individual YT/YTM audio speed test is 3% (`atempo=1.03`).
+- Group Play/Seek sender LOADING hold remains 4 seconds; all other add-on behavior and settings are unchanged from 0.3.35.
+- No integration changes.
+
 ## 0.3.35
 
 - Group YT/YTM sender LOADING hold changed from 5 seconds to 4 seconds; the same path covers initial Play and every Seek.
