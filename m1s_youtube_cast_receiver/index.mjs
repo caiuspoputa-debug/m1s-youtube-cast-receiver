@@ -456,165 +456,41 @@ const audioServer = http.createServer((req, res) => {
   if (start > 0.5) args.push('--download-sections', `*${start}-`);
   args.push(`https://www.youtube.com/watch?v=${videoId}`);
 
+  const child = spawn(YTDLP, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  activeAudioChildren.set(receiverKey, child);
   const player = runtimePlayersByKey.get(receiverKey);
-
-  // Diagnostic timing test requested for the M1S group only: compress YT/YTM
-  // audio time by 4% before Home Assistant receives it. Individual players keep
-  // the proven direct yt-dlp stream unchanged.
-  if (def.isGroup) {
-    const ytdlp = spawn(YTDLP, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    const ffmpeg = spawn('ffmpeg', [
-      '-hide_banner', '-loglevel', 'error',
-      '-i', 'pipe:0',
-      '-vn',
-      '-filter:a', 'atempo=1.13',
-      '-c:a', 'libopus', '-b:a', '160k',
-      '-f', 'ogg', 'pipe:1'
-    ], { stdio: ['pipe', 'pipe', 'pipe'] });
-
-    const pipeline = {
-      killed: false,
-      kill(signal = 'SIGTERM') {
-        this.killed = true;
-        if (!ytdlp.killed) ytdlp.kill(signal);
-        if (!ffmpeg.killed) ffmpeg.kill(signal);
-      }
-    };
-    activeAudioChildren.set(receiverKey, pipeline);
-    let ytdlpStderr = '';
-    let ffmpegStderr = '';
-    let pipelineClosed = false;
-
-    res.writeHead(200, {
-      'Content-Type': 'audio/ogg',
-      'Cache-Control': 'no-store',
-      'Connection': 'close',
-      'X-M1S-YT-Stream-Serial': String(serial),
-      'X-M1S-YT-Speed': '1.06'
-    });
-
-    ytdlp.stdout.pipe(ffmpeg.stdin);
-    ffmpeg.stdout.pipe(res);
-
-    ytdlp.stderr.on('data', (chunk) => {
-      if (ytdlpStderr.length < 64 * 1024) ytdlpStderr += chunk.toString();
-    });
-    ffmpeg.stderr.on('data', (chunk) => {
-      if (ffmpegStderr.length < 64 * 1024) ffmpegStderr += chunk.toString();
-    });
-
-    ytdlp.on('error', (error) => {
-      log('error', `[${def.name}] yt-dlp stream process error: ${error.message}`);
-      pipeline.kill('SIGTERM');
-      if (!res.destroyed) res.destroy(error);
-    });
-    ffmpeg.on('error', (error) => {
-      log('error', `[${def.name}] 4% speed FFmpeg process error: ${error.message}`);
-      pipeline.kill('SIGTERM');
-      if (!res.destroyed) res.destroy(error);
-    });
-
-    ytdlp.on('close', (code) => {
-      if (code !== 0 && code !== null && !pipeline.killed) {
-        log('error', `[${def.name}] yt-dlp audio exited with code ${code}`, ytdlpStderr.trim().slice(-1200));
-      }
-    });
-
-    ffmpeg.on('close', (code) => {
-      pipelineClosed = true;
-      if (activeAudioChildren.get(receiverKey) === pipeline) activeAudioChildren.delete(receiverKey);
-      if (code !== 0 && code !== null && !pipeline.killed) {
-        log('error', `[${def.name}] 4% speed FFmpeg exited with code ${code}`, ffmpegStderr.trim().slice(-1200));
-      } else if (!pipeline.killed) {
-        log('debug', `[${def.name}] 4% speed audio finished for ${videoId}`);
-      }
-      if (!res.writableEnded) res.end();
-    });
-
-    res.on('close', () => {
-      if (!res.writableEnded && !pipelineClosed) {
-        player?.handleStreamInterrupted(serial, videoId, 'audio client closed the stream');
-        pipeline.kill('SIGTERM');
-      }
-    });
-    return;
-  }
-
-  // Individual YT/YTM timing test: compress audio time by 3% before
-  // Home Assistant receives it. Group remains on the separate 4% path above.
-  const ytdlp = spawn(YTDLP, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-  const ffmpeg = spawn('ffmpeg', [
-    '-hide_banner', '-loglevel', 'error',
-    '-i', 'pipe:0',
-    '-vn',
-    '-filter:a', 'atempo=1.03',
-    '-c:a', 'libopus', '-b:a', '160k',
-    '-f', 'ogg', 'pipe:1'
-  ], { stdio: ['pipe', 'pipe', 'pipe'] });
-
-  const pipeline = {
-    killed: false,
-    kill(signal = 'SIGTERM') {
-      this.killed = true;
-      if (!ytdlp.killed) ytdlp.kill(signal);
-      if (!ffmpeg.killed) ffmpeg.kill(signal);
-    }
-  };
-  activeAudioChildren.set(receiverKey, pipeline);
-  let ytdlpStderr = '';
-  let ffmpegStderr = '';
-  let pipelineClosed = false;
+  let stderr = '';
+  let childClosed = false;
 
   res.writeHead(200, {
-    'Content-Type': 'audio/ogg',
+    'Content-Type': 'application/octet-stream',
     'Cache-Control': 'no-store',
     'Connection': 'close',
-    'X-M1S-YT-Stream-Serial': String(serial),
-    'X-M1S-YT-Speed': '1.03'
+    'X-M1S-YT-Stream-Serial': String(serial)
   });
 
-  ytdlp.stdout.pipe(ffmpeg.stdin);
-  ffmpeg.stdout.pipe(res);
-
-  ytdlp.stderr.on('data', (chunk) => {
-    if (ytdlpStderr.length < 64 * 1024) ytdlpStderr += chunk.toString();
+  child.stdout.pipe(res);
+  child.stderr.on('data', (chunk) => {
+    if (stderr.length < 64 * 1024) stderr += chunk.toString();
   });
-  ffmpeg.stderr.on('data', (chunk) => {
-    if (ffmpegStderr.length < 64 * 1024) ffmpegStderr += chunk.toString();
-  });
-
-  ytdlp.on('error', (error) => {
+  child.on('error', (error) => {
     log('error', `[${def.name}] yt-dlp stream process error: ${error.message}`);
-    pipeline.kill('SIGTERM');
     if (!res.destroyed) res.destroy(error);
   });
-  ffmpeg.on('error', (error) => {
-    log('error', `[${def.name}] 3% speed FFmpeg process error: ${error.message}`);
-    pipeline.kill('SIGTERM');
-    if (!res.destroyed) res.destroy(error);
-  });
-
-  ytdlp.on('close', (code) => {
-    if (code !== 0 && code !== null && !pipeline.killed) {
-      log('error', `[${def.name}] yt-dlp audio exited with code ${code}`, ytdlpStderr.trim().slice(-1200));
-    }
-  });
-
-  ffmpeg.on('close', (code) => {
-    pipelineClosed = true;
-    if (activeAudioChildren.get(receiverKey) === pipeline) activeAudioChildren.delete(receiverKey);
-    if (code !== 0 && code !== null && !pipeline.killed) {
-      log('error', `[${def.name}] 3% speed FFmpeg exited with code ${code}`, ffmpegStderr.trim().slice(-1200));
-    } else if (!pipeline.killed) {
-      log('debug', `[${def.name}] 3% speed audio finished for ${videoId}`);
+  child.on('close', (code) => {
+    childClosed = true;
+    if (activeAudioChildren.get(receiverKey) === child) activeAudioChildren.delete(receiverKey);
+    if (code !== 0 && code !== null) {
+      log('error', `[${def.name}] yt-dlp audio exited with code ${code}`, stderr.trim().slice(-1200));
+    } else {
+      log('debug', `[${def.name}] yt-dlp audio finished for ${videoId}`);
     }
     if (!res.writableEnded) res.end();
   });
-
   res.on('close', () => {
-    if (!res.writableEnded && !pipelineClosed) {
+    if (!res.writableEnded && !childClosed) {
       player?.handleStreamInterrupted(serial, videoId, 'audio client closed the stream');
-      pipeline.kill('SIGTERM');
+      if (!child.killed) child.kill('SIGTERM');
     }
   });
 });
