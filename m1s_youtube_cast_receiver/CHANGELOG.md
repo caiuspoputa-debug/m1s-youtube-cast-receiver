@@ -1,3 +1,9 @@
+## 0.3.46
+- Keep the completed-stream replay block from 0.3.45 so a finished URL/serial cannot restart from the beginning.
+- Source `yt-dlp` EOF no longer forces group STOP/NEXT and no longer cancels the HA/M1S completion monitor.
+- The group now drains the complete delivered audio normally; queue advance happens only after the player reaches the real stopped/idle completion path.
+- Initial group Play remains 5s, Seek/Resume remain 4s, and no audio acceleration is used.
+
 ## 0.3.45
 - Group YT/YTM now treats clean `yt-dlp` source EOF as the authoritative end signal.
 - A completed receiver/video/serial audio URL is never served again, preventing end-of-track retries from restarting the same song.
