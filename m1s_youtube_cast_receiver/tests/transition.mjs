@@ -97,3 +97,17 @@ v.volume.level=0;await v.setPhoneVolume({level:-3});assert.equal(v.volume.level,
 v.volume.level=100;await v.setPhoneVolume({level:103});assert.equal(v.volume.level,100);
 await v.setVolume({level:37,muted:false});assert.equal(v.volume.level,37);
 console.log('PASS: phone volume steps +/-1, ordered rapid commands, mute and boundaries; non-phone absolute setVolume unchanged.');
+const refresh=await setup(Fixed);const f=refresh.p;f.musicSenderActive=true;
+f.continuousSession={active:true};f.ownsTarget=true;f.startedAt=Date.now();
+f.noteSenderConnected({id:'music-phone'});
+while(f.progressPublishing)await Promise.resolve();
+assert.equal(f.connectedSenderIds.size,1);
+let snapshots=[];f.on('state',event=>snapshots.push(event));
+await f.publishProgress();assert.equal(snapshots.length,1);assert.equal(snapshots[0].previous,null);
+assert.equal(snapshots[0].current.status,S.PLAYING);assert.equal(snapshots[0].current.duration,207);
+await f.notifyExternalStateChange(S.PAUSED);f.paused=true;f.startedAt=null;snapshots=[];
+await f.publishProgress();assert.equal(snapshots[0].current.status,S.PAUSED);assert.equal(snapshots[0].previous,null);
+const count=snapshots.length;let finishState;f.getState=()=>new Promise(r=>finishState=r);
+const stale=f.publishProgress();f.playGeneration++;finishState({status:S.PAUSED});await stale;
+assert.equal(snapshots.length,count);
+console.log('PASS: YTM initial sender tracking, full playing/paused snapshots, stale state rejection.');

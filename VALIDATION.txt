@@ -1,1 +1,1 @@
-1.0.6 VOLUME-STEP-1: phone command +/-1, rapid ordering, mute, boundaries and non-phone absolute volume tests passed; playback regressions passed. No HA integration change. No live hardware or Docker build.
+1.0.7: regression, transition, volume step, navigation and YTM full-state playing/paused/stale checks. Dependency patches applied from pristine 2.1.0. No hardware test or Docker build.

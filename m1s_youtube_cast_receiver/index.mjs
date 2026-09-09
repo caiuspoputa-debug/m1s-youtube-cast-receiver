@@ -937,9 +937,24 @@ class M1SPlayer extends Player {
   async publishProgress() {
     if (this.progressPublishing || !this.continuousSession?.active || !this.ownsTarget
         || this.sessionRelinquished || !this.connectedSenderIds.size
-        || this.startedAt === null || this.status === Constants.PLAYER_STATUSES.LOADING) return;
+        || (this.startedAt === null && !(this.musicSenderActive && this.paused))
+        || this.status === Constants.PLAYER_STATUSES.LOADING) return;
     this.progressPublishing = true;
-    try { await this.notifyExternalStateChange(); }
+    try {
+      if (!this.musicSenderActive) {
+        await this.notifyExternalStateChange();
+      } else {
+        const session = this.continuousSession;
+        const generation = this.playGeneration;
+        const current = await this.getState();
+        if (session !== this.continuousSession || generation !== this.playGeneration
+            || !session.active || !this.connectedSenderIds.size || !this.ownsTarget
+            || this.sessionRelinquished
+            || ![Constants.PLAYER_STATUSES.PLAYING, Constants.PLAYER_STATUSES.PAUSED].includes(current.status)) return;
+        // YTM needs a complete snapshot after reconnect, not just a time delta.
+        this.emit('state', { current, previous: null });
+      }
+    }
     catch (error) { log('debug', `[${this.definition.name}] Progress publication failed.`, error?.message); }
     finally { this.progressPublishing = false; }
   }
