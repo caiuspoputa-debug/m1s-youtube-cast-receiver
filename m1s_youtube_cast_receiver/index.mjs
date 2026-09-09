@@ -902,7 +902,7 @@ class M1SPlayer extends Player {
     this.playGeneration = 0;
     this.continuousSession = null;
     this.naturalAdvanceInProgress = false;
-    this.preserveTransportAcrossStop = false;
+    this.skipNextReplacementStop = false;
     this.ownershipMonitor = null;
 
     // Sender ownership is tracked by yt-cast-receiver Sender.id. This is a
@@ -1351,16 +1351,33 @@ class M1SPlayer extends Player {
   }
 
   async play(video, position, AID) {
-    // yt-cast-receiver may call stop() while replacing the selected video. Once
-    // a continuous YT/YTM session exists, that logical stop MUST NOT become an
-    // HA transport stop. The new video is spliced into the same PCM stream.
-    const continuing = Boolean(this.continuousSession?.active && this.ownsTarget && !this.sessionRelinquished);
-    if (continuing) this.preserveTransportAcrossStop = true;
+    // The queue may already point at the successor. Never send its ID with
+    // the previous track's end position/duration in the LOADING snapshot.
+    this.basePosition = Math.max(0, Number(position) || 0);
+    this.startedAt = null;
+    this.duration = 0;
+    // In pinned yt-cast-receiver 2.1.0, super.play synchronously invokes
+    // this.stop() before its first await when already PLAYING. Consume only
+    // that internal stop, before the base class can publish STOPPED to Cast.
+    this.skipNextReplacementStop = Boolean(this.continuousSession?.active
+      && this.ownsTarget && !this.sessionRelinquished
+      && this.status === Constants.PLAYER_STATUSES.PLAYING);
     try {
       return await super.play(video, position, AID);
     } finally {
-      this.preserveTransportAcrossStop = false;
+      this.skipNextReplacementStop = false;
     }
+  }
+
+  async stop(AID) {
+    if (this.skipNextReplacementStop) {
+      // Clear synchronously: a real Stop arriving during extraction/loading
+      // must still close the transport and notify the sender normally.
+      this.skipNextReplacementStop = false;
+      log('debug', `[${this.definition.name}] Replacing track inside active Cast session; no intermediate STOPPED.`);
+      return true;
+    }
+    return super.stop(AID);
   }
 
   async doPlay(video, position) {
@@ -1465,6 +1482,9 @@ class M1SPlayer extends Player {
       await this.relinquishToExternalSource('Resume ignored because HA is playing another source');
       return false;
     }
+    // A play+seek burst can finish the seek while the base Player still has
+    // PAUSED cached. Its follow-up resume must not queue the same audio twice.
+    if (!this.paused && this.startedAt !== null) return true;
     this.paused = false;
     const generation = ++this.playGeneration;
     const trackGeneration = await this.continuousSession.queueTrack(this.currentVideoId, this.basePosition, { append: false });
@@ -1479,11 +1499,6 @@ class M1SPlayer extends Player {
   }
 
   async doStop() {
-    if (this.preserveTransportAcrossStop && this.continuousSession?.active) {
-      log('debug', `[${this.definition.name}] Logical YT/YTM track replacement: HA transport intentionally kept open.`);
-      return true;
-    }
-
     this.stopProgressUpdates();
     const session = this.continuousSession;
     const expectedPath = this.expectedStreamPath();

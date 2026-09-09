@@ -1,12 +1,12 @@
 {
   "name": "m1s-youtube-cast-receiver",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "type": "module",
   "dependencies": {
     "yt-cast-receiver": "2.1.0"
   },
   "scripts": {
-    "test": "node tests/regression.mjs"
+    "test": "node tests/regression.mjs && node tests/transition.mjs"
   }
 }

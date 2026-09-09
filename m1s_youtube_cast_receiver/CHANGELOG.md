@@ -1,3 +1,11 @@
+## 1.0.4 — Keep Cast state alive during track replacement
+
+- Fix a confirmed intermediate STOPPED notification from the pinned Player.play() implementation. Keeping only doStop() from closing PCM was insufficient: the base stop() still announced STOPPED, including the successor video ID and the previous track's end time. Consume only the synchronous internal replacement stop before the base stop() runs. Explicit Stop remains effective during asynchronous loading and handoff.
+- Reset the loading snapshot position/duration for the requested track before the base player publishes it; never associate the successor ID with the preceding track's elapsed time.
+- Handle overlapping Play/Seek commands: when seek has already made the target position audible, the library's follow-up resume must not start another decoder for the same position. Normal Pause/Resume and explicit Stop remain available.
+- Regression tests use the actual pinned 2.1.0 Player implementation, reproducing the old STOPPED sequence, then checking replacement, natural EOF advance, Stop during loading, overlapping Play/Seek and normal Seek/Pause/Resume. PCM and HA services are mocked; no physical phone/hub test or container build was run.
+- ContinuousSession audio code, group restore, queue resolution and final-track drain are unchanged. No Home Assistant integration changes. This release does not claim to fix every RPC reconnect or prove that every phone retains its Cast connection.
+
 ## 1.0.3 — Queue navigation, startup state and complete track endings
 
 - Resolve Previous/Next from the explicit ordered video IDs already sent by YouTube/YTM. Previously the default library queried remote TV navigation even when the local list was populated; null endpoints left hasNext false. Keep the sender client, playlist context and index. Remote recommendations are retained only beyond the supplied list when autoplay is enabled; they have a five-second result deadline.
