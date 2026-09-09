@@ -1,3 +1,7 @@
+## 1.0.8 — YTM active-session control fix
+
+Fix strict numai pentru YouTube Music. Jurnalul live a arătat că senderul este YTM, dar `yt-cast-receiver` publică starea pe sesiunea activă **YouTube**, de aceea YTM rămâne cu timpul lipsă și butoanele gri. 1.0.8 rutează un sender identificat explicit `YTMUSIC` către sesiunea YouTube Music fără resetarea playerului și repară cursa de pornire folosind traficul YTM (`noop`) ca fallback. Calea normală YouTube nu este schimbată. Fluxul PCM continuu, Next/autoplay și volumul cu pas 1 rămân neschimbate.
+
 ## 1.0.7 — Stare completă pentru YouTube Music
 
 Înregistrează în add-on expeditorii YTM deja recunoscuți de bibliotecă la pornire, chiar dacă evenimentul senderConnect nu a fost emis. Registrul acesta condiționează actualizările periodice de progres. Pentru sesiuni identificate ca YTM, trimite starea completă a piesei, duratei, progresului și navigării, inclusiv în pauză. Respinge instantaneele depășite și nu forțează PLAYING când playerul este oprit.
