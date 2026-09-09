@@ -19,9 +19,11 @@ export function createQueueHandler(BaseHandler, autoplayEnabled) {
       try {
         const remote = await Promise.race([
           super.getPreviousNextVideos(target, playlist),
-          new Promise(resolve => { timer = setTimeout(() => resolve(null), 5000); })
+          new Promise(resolve => { timer = setTimeout(() => resolve(null), 12000); })
         ]);
-        return { previous, next: remote?.next || null };
+        const candidate = remote?.next?.id !== target.id ? remote?.next : null;
+        if (!candidate) this.logger?.warn?.('[M1S-YT] No continuation returned for current queue boundary; autoplay is enabled.');
+        return { previous, next: candidate || null };
       } catch (_) {
         return { previous, next: null };
       } finally { clearTimeout(timer); }

@@ -1,3 +1,12 @@
+## 1.0.5 — Cast next/autoplay navigation
+
+- The receiver previously read only the legacy TV autoplay response. Add explicit desktop autoplay, player-overlay autoplay and selected playlist successor parsing, with WEB watch-next fallback when TV returns no endpoint. Retain the original video/playlist/credential context. Do not select arbitrary related videos or invent a replacement playlist. Extend the boundary lookup result deadline from five to twelve seconds; report a missing successor explicitly.
+- Include a valid enabled autoplay candidate in the player's advertised hasNext capability. The upstream Playlist.hasNext getter deliberately excludes the final row, even when Playlist.autoplay exists. Send refreshed navigation when the autoplay candidate changes.
+- Remove the upstream YouTubeApp setPlaylist pre-stop for a valid replacement. Player.play still owns normal replacement behavior; M1S preserves the established stream. Empty list, explicit Stop and explicit sender-disconnect handling remain intact.
+- Apply narrow, source-checked patches to exact yt-cast-receiver 2.1.0 during npm postinstall. The Dockerfile copies patch inputs before dependency installation. An unexpected dependency version or patch target fails the build.
+- Regression tests cover the actual patched resolver with controlled TV/WEB responses, exact Playlist autoplay semantics, the actual setPlaylist branch, and all existing transition, seek, queue and final-drain checks. No live authenticated YouTube session, physical phone/hub test or Docker build was performed. Endpoint changes or unavailable remote recommendations can still prevent continuation; this release is not proof that the reported device issue is fully resolved.
+- ContinuousSession PCM implementation, HA integration, group restoration and synchronization architecture are unchanged.
+
 ## 1.0.4 — Keep Cast state alive during track replacement
 
 - Fix a confirmed intermediate STOPPED notification from the pinned Player.play() implementation. Keeping only doStop() from closing PCM was insufficient: the base stop() still announced STOPPED, including the successor video ID and the previous track's end time. Consume only the synchronous internal replacement stop before the base stop() runs. Explicit Stop remains effective during asynchronous loading and handoff.

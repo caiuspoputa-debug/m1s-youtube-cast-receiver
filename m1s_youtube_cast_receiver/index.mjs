@@ -1445,6 +1445,12 @@ class M1SPlayer extends Player {
     }
   }
 
+  getNavInfo() {
+    const nav = super.getNavInfo();
+    return { ...nav, hasNext: nav.hasNext || Boolean(
+      this.autoplayMode === Constants.AUTOPLAY_MODES.ENABLED && this.queue.autoplay) };
+  }
+
   async next(AID) {
     if (this.sessionRelinquished || (this.currentVideo && !(await this.targetStillOwnedByYoutube()))) {
       await this.relinquishToExternalSource('Next ignored after external source takeover');
