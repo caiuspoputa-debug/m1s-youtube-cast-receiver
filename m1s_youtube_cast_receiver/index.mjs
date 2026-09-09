@@ -3,7 +3,10 @@ import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import YouTubeCastReceiver, { Constants, Player } from 'yt-cast-receiver';
+import YouTubeCastReceiver, { Constants, Player, DefaultPlaylistRequestHandler } from 'yt-cast-receiver';
+
+import { createQueueHandler } from './queue-handler.mjs';
+const SenderQueueHandler = createQueueHandler(DefaultPlaylistRequestHandler, Constants.AUTOPLAY_MODES.ENABLED);
 
 const OPTIONS_PATH = '/data/options.json';
 const YTDLP = '/opt/yt-dlp/bin/yt-dlp';
@@ -913,6 +916,8 @@ class M1SPlayer extends Player {
     // receiver to the M1S Media Group. The individual must Stop + restore its
     // original group membership before group playback starts.
     this.pendingGroupSenderRestore = Promise.resolve();
+    this.progressTimer = null;
+    this.progressPublishing = false;
 
     // Exact v0.3.7 individual-group session memory. Capture once before the
     // first automatic removal and never overwrite it on next/seek/resume.
@@ -926,6 +931,27 @@ class M1SPlayer extends Player {
     this.relinquishInProgress = false;
   }
 
+  async publishProgress() {
+    if (this.progressPublishing || !this.continuousSession?.active || !this.ownsTarget
+        || this.sessionRelinquished || !this.connectedSenderIds.size
+        || this.startedAt === null || this.status === Constants.PLAYER_STATUSES.LOADING) return;
+    this.progressPublishing = true;
+    try { await this.notifyExternalStateChange(); }
+    catch (error) { log('debug', `[${this.definition.name}] Progress publication failed.`, error?.message); }
+    finally { this.progressPublishing = false; }
+  }
+
+  startProgressUpdates() {
+    if (this.progressTimer) return;
+    this.progressTimer = setInterval(() => void this.publishProgress(), 5000);
+    this.progressTimer.unref?.();
+  }
+
+  stopProgressUpdates() {
+    if (this.progressTimer) clearInterval(this.progressTimer);
+    this.progressTimer = null;
+  }
+
   currentPosition() {
     if (this.startedAt === null || this.paused) return this.basePosition;
     return Math.max(0, this.basePosition + (Date.now() - this.startedAt) / 1000);
@@ -936,6 +962,7 @@ class M1SPlayer extends Player {
     if (!senderId) return;
     this.connectedSenderIds.add(senderId);
     this.lastConnectedSenderId = senderId;
+    void this.publishProgress();
   }
 
   noteSenderDisconnected(sender) {
@@ -1098,6 +1125,13 @@ class M1SPlayer extends Player {
         const expectedPath = this.expectedStreamPath();
         if (expectedPath && snapshot.mediaId && !snapshot.mediaId.includes(expectedPath)) {
           throw new Error('HA source changed before YT/YTM transport start');
+        }
+        if (!Number.isFinite(snapshot.transportStartedSerial)
+            && expectedPath && snapshot.mediaId?.includes(expectedPath)
+            && ['playing', 'buffering'].includes(snapshot.state)) {
+          // First PCM has already been written. Do not keep the sender LOADING
+          // for 15 s when this integration does not expose the optional serial.
+          break;
         }
       } catch (error) {
         if (String(error?.message || '').includes('source changed')) throw error;
@@ -1279,6 +1313,7 @@ class M1SPlayer extends Player {
         log('warn', `[${this.definition.name}] Transport-start serial unavailable; using one-time startup lead fallback.`);
       }
       if (prepared.generation !== this.playGeneration || this.sessionRelinquished) return false;
+      this.startProgressUpdates();
       this.startedAt = transportAt;
       this.basePosition = prepared.position;
       log('info', `[${this.definition.name}] Continuous YT/YTM session is audible; no more HA Play/Stop at song boundaries.`);
@@ -1363,15 +1398,29 @@ class M1SPlayer extends Player {
       // Advance immediately at SOURCE EOF so extraction of the next song can run
       // while the final ~2.5 s of the old track are still queued. doPlay() stays
       // LOADING until the new track actually reaches the established transport.
-      const advanced = await this.next();
+      // Player.next() calls stop() when there is no successor. Never let that
+      // close the transport before the last queued PCM has reached the hubs.
+      const deadline = Date.now() + 6000;
+      while (this.queue.isUpdating && Date.now() < deadline) await sleep(50);
+      if (this.continuousSession !== session || !session.active
+          || sourceGeneration !== session.currentTrackGeneration || this.paused) return;
+      if (!(await this.targetStillOwnedByYoutube())) {
+        await this.relinquishToExternalSource('Source changed before natural next');
+        return;
+      }
+      const nextVideo = await this.queue.next();
+      const video = nextVideo || (this.autoplayMode === Constants.AUTOPLAY_MODES.ENABLED
+        ? this.queue.autoplay : null);
+      const advanced = video ? await this.play(video) : false;
       if (advanced) return;
 
       log('info', `[${this.definition.name}] Queue/autoplay has no next item; draining final track then stopping.`);
-      const drainedAt = await session.waitTrackOutputDrain(sourceGeneration).catch(() => Date.now());
+      const drainedAt = await session.waitTrackOutputDrain(sourceGeneration);
       const stopAt = drainedAt + Math.max(0, Number(session.transportLeadMs) || 0) + 150;
       const waitMs = stopAt - Date.now();
       if (waitMs > 0) await sleep(waitMs);
-      if (this.continuousSession === session && session.active) await this.stop();
+      if (this.continuousSession === session && session.active
+          && sourceGeneration === session.currentTrackGeneration && !this.paused) await this.stop();
     } catch (error) {
       log('error', `[${this.definition.name}] Continuous queue advance failed.`, error?.message || String(error));
     } finally {
@@ -1435,6 +1484,7 @@ class M1SPlayer extends Player {
       return true;
     }
 
+    this.stopProgressUpdates();
     const session = this.continuousSession;
     const expectedPath = this.expectedStreamPath();
     const stillOwned = await this.targetStillOwnedByYoutube();
@@ -1592,6 +1642,7 @@ try {
 
     const receiver = new YouTubeCastReceiver(player, {
       app: {
+        playlistRequestHandler: new SenderQueueHandler(),
         enableAutoplayOnConnect: true,
         resetPlayerOnDisconnectPolicy: Constants.RESET_PLAYER_ON_DISCONNECT_POLICIES.ALL_EXPLICITLY_DISCONNECTED
       },

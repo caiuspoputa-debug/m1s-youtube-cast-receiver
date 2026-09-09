@@ -1,0 +1,1 @@
+PASS: JavaScript syntax; actual library Playlist tests; startup state/EOF/progress unit checks. Continuous audio session implementation unchanged. Configuration parsed. No live phone/hub or Docker build available. Run npm test inside the add-on folder after dependency installation.

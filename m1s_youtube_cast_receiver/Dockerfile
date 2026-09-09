@@ -22,6 +22,7 @@ WORKDIR /app
 COPY package.json /app/package.json
 RUN npm install --omit=dev --no-audit --no-fund
 COPY index.mjs /app/index.mjs
+COPY queue-handler.mjs /app/queue-handler.mjs
 COPY run.sh /run.sh
 RUN chmod a+x /run.sh
 
