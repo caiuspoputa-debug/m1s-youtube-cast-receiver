@@ -1,6 +1,6 @@
 {
   "name": "m1s-youtube-cast-receiver",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "private": true,
   "type": "module",
   "dependencies": {
@@ -8,6 +8,6 @@
   },
   "scripts": {
     "test": "node tests/regression.mjs && node tests/transition.mjs && node tests/navigation.mjs",
-    "postinstall": "node patch-receiver.mjs"
+    "postinstall": "node patch-receiver.mjs && node patch-music.mjs && node patch-volume.mjs"
   }
 }

@@ -903,6 +903,9 @@ class M1SPlayer extends Player {
     this.continuousSession = null;
     this.naturalAdvanceInProgress = false;
     this.skipNextReplacementStop = false;
+    this.pendingPlay = null;
+    this.playRequestEpoch = 0;
+    this.musicSenderActive = false;
     this.ownershipMonitor = null;
 
     // Sender ownership is tracked by yt-cast-receiver Sender.id. This is a
@@ -1277,6 +1280,7 @@ class M1SPlayer extends Player {
     await this.waitForPendingGroupSenderRestore();
     await this.ensureIndividualReadyForPlayback();
     if (!(await this.ensureInitialGroupCleanStart())) return false;
+    if (this.musicSenderActive && (prepared.generation !== this.playGeneration || this.sessionRelinquished)) return false;
 
     const serial = nextStreamSerial();
     const session = new ContinuousAudioSession(this, serial);
@@ -1296,6 +1300,11 @@ class M1SPlayer extends Player {
           stream_serial: serial
         }
       });
+      if (this.musicSenderActive && (prepared.generation !== this.playGeneration || this.continuousSession !== session
+          || this.sessionRelinquished)) {
+        await session.stop();
+        return false;
+      }
       this.ownsTarget = true;
       this.sessionRelinquished = false;
       this.startOwnershipMonitor();
@@ -1321,8 +1330,11 @@ class M1SPlayer extends Player {
     } catch (error) {
       log('error', `[${this.definition.name}] Continuous HA session start failed.`, error?.message || String(error));
       await session.stop();
-      if (this.continuousSession === session) this.continuousSession = null;
-      this.ownsTarget = false;
+      if (this.continuousSession === session) {
+        this.continuousSession = null;
+        this.ownsTarget = false;
+      }
+      if (!this.musicSenderActive) this.ownsTarget = false;
       return false;
     }
   }
@@ -1351,6 +1363,30 @@ class M1SPlayer extends Player {
   }
 
   async play(video, position, AID) {
+    if (!this.musicSenderActive) return this.playSelected(video, position, AID);
+    const requestedPosition = Math.max(0, Number(position) || 0);
+    const previous = this.pendingPlay;
+    if (previous?.epoch === this.playRequestEpoch && previous.id === video.id
+        && previous.position === requestedPosition) return previous.promise;
+    const request = { id: video.id, position: requestedPosition, epoch: this.playRequestEpoch };
+    // Sender messages may arrive concurrently. Complete one start before touching
+    // the same HA target again; identical retries share the original operation.
+    request.promise = Promise.resolve(previous?.promise).catch(() => false).then(() => {
+      if (request.epoch !== this.playRequestEpoch) return false;
+      return this.playSelected(video, requestedPosition, AID);
+    }).finally(() => {
+      if (this.pendingPlay === request) this.pendingPlay = null;
+    });
+    this.pendingPlay = request;
+    return request.promise;
+  }
+
+  async resume(AID) {
+    if (this.musicSenderActive && this.pendingPlay?.epoch === this.playRequestEpoch) return this.pendingPlay.promise;
+    return super.resume(AID);
+  }
+
+  async playSelected(video, position, AID) {
     // The queue may already point at the successor. Never send its ID with
     // the previous track's end position/duration in the LOADING snapshot.
     this.basePosition = Math.max(0, Number(position) || 0);
@@ -1376,6 +1412,10 @@ class M1SPlayer extends Player {
       this.skipNextReplacementStop = false;
       log('debug', `[${this.definition.name}] Replacing track inside active Cast session; no intermediate STOPPED.`);
       return true;
+    }
+    if (this.musicSenderActive) {
+      this.playRequestEpoch += 1;
+      this.playGeneration += 1;
     }
     return super.stop(AID);
   }
@@ -1560,6 +1600,22 @@ class M1SPlayer extends Player {
     this.startedAt = audibleAt;
     log('info', `[${this.definition.name}] Seek completed inside continuous transport at ${this.basePosition.toFixed(1)}s.`);
     return true;
+  }
+
+  async setPhoneVolume(volume, AID) {
+    // Only the Cast phone command path uses one-point steps. Absolute volume
+    // calls and the HA integration slider retain their existing behavior.
+    const operation = Promise.resolve(this.phoneVolumeQueue).catch(() => false).then(async () => {
+      const current = await this.getVolume();
+      const requested = Number(volume?.level);
+      const level = Number.isFinite(requested)
+        ? Math.min(100, Math.max(0, current.level + Math.sign(requested - current.level)))
+        : current.level;
+      return super.setVolume({ level, muted: Boolean(volume?.muted) }, AID);
+    });
+    this.phoneVolumeQueue = operation;
+    try { return await operation; }
+    finally { if (this.phoneVolumeQueue === operation) this.phoneVolumeQueue = null; }
   }
 
   async doSetVolume(volume) {

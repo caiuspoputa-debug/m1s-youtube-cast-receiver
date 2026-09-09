@@ -21,6 +21,8 @@ RUN apk add --no-cache \
 WORKDIR /app
 COPY package.json /app/package.json
 COPY patch-receiver.mjs next-navigation.mjs /app/
+COPY patch-music.mjs music-start.mjs /app/
+COPY patch-volume.mjs /app/
 RUN npm install --omit=dev --no-audit --no-fund
 COPY index.mjs /app/index.mjs
 COPY queue-handler.mjs /app/queue-handler.mjs

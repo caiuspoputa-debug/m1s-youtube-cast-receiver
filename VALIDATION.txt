@@ -1,1 +1,1 @@
-1.0.5: local regression, transition and navigation suites passed against patched yt-cast-receiver 2.1.0. JS syntax, JSON/YAML and ZIP integrity checked. ContinuousSession unchanged. Dependency patch is source/version guarded. Remote responses in tests are fixtures; no authenticated phone/hub test or Docker build.
+1.0.6 VOLUME-STEP-1: phone command +/-1, rapid ordering, mute, boundaries and non-phone absolute volume tests passed; playback regressions passed. No HA integration change. No live hardware or Docker build.
