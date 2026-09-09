@@ -1,6 +1,8 @@
-## 1.0.8 — YTM active-session control fix
+## 1.0.9 — YTM sidecar control/state fix (1.0.8 rolled back)
 
-Fix strict numai pentru YouTube Music. Jurnalul live a arătat că senderul este YTM, dar `yt-cast-receiver` publică starea pe sesiunea activă **YouTube**, de aceea YTM rămâne cu timpul lipsă și butoanele gri. 1.0.8 rutează un sender identificat explicit `YTMUSIC` către sesiunea YouTube Music fără resetarea playerului și repară cursa de pornire folosind traficul YTM (`noop`) ca fallback. Calea normală YouTube nu este schimbată. Fluxul PCM continuu, Next/autoplay și volumul cu pas 1 rămân neschimbate.
+Built from the working 1.0.7 playback path, not from 1.0.8. The 1.0.8 active-session promotion is removed because it made the generic YouTube lounge session inactive; `setPlaylist` / `play` arriving there were then rejected and YouTube Music could no longer start.
+
+1.0.9 keeps the active playback session exactly as 1.0.7, mirrors player-state messages to the YouTube Music sidecar session, answers YTM sidecar state/navigation requests, and accepts YTM sidecar control messages only when the connected sender set is identified as YouTube Music. Ordinary YouTube remains on the 1.0.7 path. Continuous PCM transport, queue/autoplay, group restore and volume-step-1 are unchanged.
 
 ## 1.0.7 — Stare completă pentru YouTube Music
 

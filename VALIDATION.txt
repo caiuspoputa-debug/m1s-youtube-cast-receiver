@@ -1,1 +1,1 @@
-1.0.8: YTM active-session routing from explicit YTM sender identity; startup race/noop fallback; ordinary YouTube branch preserved. Existing regression/navigation/transition tests plus clean dependency patch and syntax checks. No hardware test.
+1.0.9: based on 1.0.7; no active-session promotion. YTM sidecar receives mirrored state and may control only when connected senders identify as YTMUSIC. Ordinary YouTube remains on the active-session path. Syntax/static regression checks passed; hardware test pending.

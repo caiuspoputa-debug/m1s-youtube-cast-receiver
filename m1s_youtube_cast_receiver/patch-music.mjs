@@ -33,34 +33,61 @@ if (!source.includes(registrationMarker)) {
 }
 console.log('M1S 1.0.7: initial YTM senders registered for state publication.');
 
-const activeSessionMarker = '// M1S 1.0.8 YTM active-session routing';
+const sidecarMarker = '// M1S 1.0.9 YTM sidecar state/control bridge';
 source = fs.readFileSync(app, 'utf8').replace(/\r\n/g, '\n');
-if (!source.includes(activeSessionMarker)) {
-  // 1) During startup, the first loungeStatus can arrive on the generic YouTube
-  // transport even when every connected sender identifies itself as YTMUSIC.
-  // Route only that all-YTM case to the YTM session; normal YouTube stays exactly
-  // on the library's original path.
-  const startupBefore = `                    __classPrivateFieldSet(this, _YouTubeApp_activeSession, session, "f");\n                    __classPrivateFieldGet(this, _YouTubeApp_logger, "f").debug(\`[yt-cast-receiver] Active session switched to '\${client.name}'.\`);`;
-  const startupAfter = `                    const m1sTargetSession = isMusicSender(loungeStatusSenders, client)\n                        ? __classPrivateFieldGet(this, _YouTubeApp_sessions, "f").YTMUSIC\n                        : session;\n                    __classPrivateFieldSet(this, _YouTubeApp_activeSession, m1sTargetSession, "f");\n                    __classPrivateFieldGet(this, _YouTubeApp_logger, "f").debug(\`[yt-cast-receiver] Active session switched to '\${m1sTargetSession.client.name}'.\`);`;
-  if (source.split(startupBefore).length !== 2) throw Error('YTM startup active-session patch target mismatch');
-  source = source.replace(startupBefore, startupAfter);
+if (!source.includes(sidecarMarker)) {
+  // IMPORTANT: keep the active session unchanged. In live YTM traffic the actual
+  // setPlaylist/play messages may still arrive through the generic YT lounge
+  // session. 1.0.8 promoted YTM to active and therefore caused those YT messages
+  // to hit `if (!isSessionActive) return`, so playback never started.
 
-  // 2) A YTM sender can be reported by the generic YT lounge session. Do not call
-  // checkAndSwitchActiveSession(YT) for that sender because it can reset playback.
-  // Promote the already-running YTM session directly and leave the YT branch intact.
-  const connectBefore = `}, _YouTubeApp_handleSenderConnected = async function _YouTubeApp_handleSenderConnected(sender, session, AID) {\n    await __classPrivateFieldGet(this, _YouTubeApp_instances, "m", _YouTubeApp_checkAndSwitchActiveSession).call(this, session);\n    const sendMessages = [];`;
-  const connectAfter = `}, _YouTubeApp_handleSenderConnected = async function _YouTubeApp_handleSenderConnected(sender, session, AID) {\n    if (sender?.client?.key === 'YTMUSIC') {\n        const ytmSession = __classPrivateFieldGet(this, _YouTubeApp_sessions, "f").YTMUSIC;\n        if (__classPrivateFieldGet(this, _YouTubeApp_activeSession, "f") !== ytmSession) {\n            __classPrivateFieldSet(this, _YouTubeApp_activeSession, ytmSession, "f");\n            __classPrivateFieldGet(this, _YouTubeApp_logger, "f").debug('[M1S-YT] YTM sender routed to YouTube Music control session without resetting playback.');\n        }\n    }\n    else {\n        await __classPrivateFieldGet(this, _YouTubeApp_instances, "m", _YouTubeApp_checkAndSwitchActiveSession).call(this, session);\n    }\n    const sendMessages = [];`;
-  if (source.split(connectBefore).length !== 2) throw Error('YTM sender-connect routing patch target mismatch');
-  source = source.replace(connectBefore, connectAfter);
+  const incomingStart = source.indexOf('_YouTubeApp_handleIncomingMessage = async function _YouTubeApp_handleIncomingMessage');
+  const incomingEnd = source.indexOf('}, _YouTubeApp_handleSenderConnected = async function _YouTubeApp_handleSenderConnected', incomingStart);
+  if (incomingStart < 0 || incomingEnd < 0) throw Error('YTM 1.0.9 incoming-message function target missing');
+  let incoming = source.slice(incomingStart, incomingEnd);
 
-  // 3) Race fallback: if YTM is already connected but the generic YT session won
-  // startup, the periodic YTM noop is enough to repair ownership. This changes only
-  // an all-YTM sender set and does not run for ordinary YouTube senders.
-  const incomingBefore = `    const { AID, name, payload } = message;\n    const isSessionActive = session === __classPrivateFieldGet(this, _YouTubeApp_activeSession, "f");\n    const client = session.client;`;
-  const incomingAfter = `    const { AID, name, payload } = message;\n    const client = session.client;\n    if (client?.key === 'YTMUSIC' && __classPrivateFieldGet(this, _YouTubeApp_connectedSenders, "f").length > 0\n        && isMusicSender(__classPrivateFieldGet(this, _YouTubeApp_connectedSenders, "f"), client)\n        && session !== __classPrivateFieldGet(this, _YouTubeApp_activeSession, "f")) {\n        __classPrivateFieldSet(this, _YouTubeApp_activeSession, session, "f");\n        const musicPlayer = __classPrivateFieldGet(this, _YouTubeApp_player, "f");\n        musicPlayer.musicSenderActive = true;\n        for (const sender of __classPrivateFieldGet(this, _YouTubeApp_connectedSenders, "f")) {\n            if (sender.id && !musicPlayer.connectedSenderIds.has(sender.id)) musicPlayer.noteSenderConnected(sender);\n        }\n        __classPrivateFieldGet(this, _YouTubeApp_logger, "f").debug('[M1S-YT] YTM control session promoted from sidecar traffic; playback was not reset.');\n    }\n    const isSessionActive = session === __classPrivateFieldGet(this, _YouTubeApp_activeSession, "f");`;
-  if (source.split(incomingBefore).length !== 2) throw Error('YTM incoming-session promotion patch target mismatch');
-  source = source.replace(incomingBefore, incomingAfter);
+  const dispatchNeedle = `    if (isSessionActive && ['setPlaylist', 'play', 'pause', 'stop', 'seekTo', 'next', 'previous'].includes(name)) {`;
+  if (incoming.split(dispatchNeedle).length !== 2) throw Error('YTM 1.0.9 dispatch target mismatch');
+  incoming = incoming.replace(dispatchNeedle, `    const m1sYtmSidecar = !isSessionActive && client?.key === 'YTMUSIC'
+        && isMusicSender(__classPrivateFieldGet(this, _YouTubeApp_connectedSenders, "f"), client);
+    const m1sCanControl = isSessionActive || m1sYtmSidecar;
+    if (m1sCanControl && ['setPlaylist', 'play', 'pause', 'stop', 'seekTo', 'next', 'previous'].includes(name)) {`);
 
-  fs.writeFileSync(app, activeSessionMarker + '\n' + source);
+  const guardCount = incoming.split('if (!isSessionActive) return;').length - 1;
+  if (guardCount < 8 || guardCount > 10) throw Error(`YTM 1.0.9 unexpected active-control guard count: ${guardCount}`);
+  incoming = incoming.replaceAll('if (!isSessionActive) return;', 'if (!m1sCanControl) return;');
+
+  const nowPlayingOld = 'isSessionActive ? await __classPrivateFieldGet(this, _YouTubeApp_player, "f").getState() : null';
+  if (incoming.split(nowPlayingOld).length !== 2) throw Error('YTM 1.0.9 getNowPlaying target mismatch');
+  incoming = incoming.replace(nowPlayingOld, 'm1sCanControl ? await __classPrivateFieldGet(this, _YouTubeApp_player, "f").getState() : null');
+
+  const navOld = 'const playerNavInfo = isSessionActive ? __classPrivateFieldGet(this, _YouTubeApp_player, "f").getNavInfo() : null;';
+  if (incoming.split(navOld).length !== 2) throw Error('YTM 1.0.9 lounge navigation target mismatch');
+  incoming = incoming.replace(navOld, 'const playerNavInfo = m1sCanControl ? __classPrivateFieldGet(this, _YouTubeApp_player, "f").getNavInfo() : null;');
+
+  source = source.slice(0, incomingStart) + incoming + source.slice(incomingEnd);
+
+  // Mirror state to the YTM sidecar without changing `activeSession`. This is
+  // what the YTM phone UI needs for time / Pause / Previous / Next, while the
+  // working YT lounge path remains the owner of initial playback.
+  const stateStart = source.indexOf('_YouTubeApp_handlePlayerStateEvent = function _YouTubeApp_handlePlayerStateEvent');
+  const stateEnd = source.indexOf('    return super.emit(event, ...args);', stateStart);
+  if (stateStart < 0 || stateEnd < 0) throw Error('YTM 1.0.9 state-event function target missing');
+  let state = source.slice(stateStart, stateEnd);
+  const activeSend = '__classPrivateFieldGet(this, _YouTubeApp_activeSession, "f").sendMessage(messages';
+  const sendCount = state.split(activeSend).length - 1;
+  if (sendCount !== 2) throw Error(`YTM 1.0.9 expected two active state sends, got ${sendCount}`);
+  const mirror = `const m1sYtmStateSession = __classPrivateFieldGet(this, _YouTubeApp_sessions, "f").YTMUSIC;
+        const m1sActiveStateSession = __classPrivateFieldGet(this, _YouTubeApp_activeSession, "f");
+        if (__classPrivateFieldGet(this, _YouTubeApp_player, "f").musicSenderActive
+            && m1sYtmStateSession && m1sYtmStateSession !== m1sActiveStateSession) {
+            m1sYtmStateSession.sendMessage(messages)
+                .catch((error) => __classPrivateFieldGet(this, _YouTubeApp_logger, "f").debug('[M1S-YT] YTM sidecar state mirror failed:', error?.message || error));
+        }
+        `;
+  state = state.replaceAll(activeSend, mirror + activeSend);
+  source = source.slice(0, stateStart) + state + source.slice(stateEnd);
+
+  fs.writeFileSync(app, sidecarMarker + '\n' + source);
 }
-console.log('M1S 1.0.8: YTM sender/state is routed to the YouTube Music session; normal YouTube path unchanged.');
+console.log('M1S 1.0.9: YTM sidecar state/control bridge applied; active playback session left unchanged.');

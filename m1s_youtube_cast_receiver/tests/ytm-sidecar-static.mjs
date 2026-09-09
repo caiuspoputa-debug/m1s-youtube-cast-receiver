@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const patch = fs.readFileSync(new URL('../patch-music.mjs', import.meta.url), 'utf8');
+assert.match(patch, /M1S 1\.0\.9 YTM sidecar state\/control bridge/);
+assert.match(patch, /const m1sCanControl = isSessionActive \|\| m1sYtmSidecar/);
+assert.match(patch, /m1sYtmStateSession\.sendMessage\(messages\)/);
+assert.doesNotMatch(patch, /__classPrivateFieldSet\(this, _YouTubeApp_activeSession/);
+const cfg = fs.readFileSync(new URL('../config.yaml', import.meta.url), 'utf8');
+const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+assert.match(cfg, /version: "1\.0\.9"/);
+assert.equal(pkg.version, '1.0.9');
+console.log('PASS: 1.0.9 keeps activeSession untouched and bridges YTM sidecar state/control only.');
