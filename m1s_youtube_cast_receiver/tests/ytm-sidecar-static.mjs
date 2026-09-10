@@ -17,6 +17,6 @@ assert.equal((state.match(/m1sYtmStateSession\.sendMessage\(messages\)/g) || [])
 assert.equal((state.match(/_YouTubeApp_activeSession, "f"\)\.sendMessage\(messages/g) || []).length, 2);
 const cfg = fs.readFileSync(new URL('../config.yaml', import.meta.url), 'utf8');
 const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-assert.match(cfg, /version: "1\.0\.11"/);
-assert.equal(pkg.version, '1.0.11');
-console.log('PASS: installed 1.0.11 dependency contains nine YTM control guards and two state mirrors; active sends retained.');
+assert.match(cfg, /version: "1\.0\.12"/);
+assert.equal(pkg.version, '1.0.12');
+console.log('PASS: installed 1.0.12 dependency contains nine YTM control guards and two state mirrors; active sends retained.');

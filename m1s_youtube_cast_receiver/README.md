@@ -1,3 +1,9 @@
+## 1.0.12 — Mute individual păstrat din Home Assistant
+
+Mute-ul fiecărui membru al grupului rămâne controlat exclusiv din tile-ul media playerului din Home Assistant. Comenzile Cast de volum schimbă numai nivelul, în continuare cu pas de 1%, și nu mai pot trimite automat `unmute`. După schimbarea volumului, add-on-ul recitește starea reală de mute din Home Assistant și o raportează telefonului.
+
+Integrarea Aqara rămâne la v0.20.8. Fluxul PCM, sincronizarea, YouTube, YouTube Music, controalele și actualizarea titlului nu sunt schimbate.
+
 ## 1.0.11 — Titlul piesei în Home Assistant
 
 Publică titlul, artistul și sursa către integrarea Aqara v0.20.8 la aproximativ patru secunde după ce piesa devine audibilă. Actualizarea conține URL-ul exact al sesiunii active; integrarea o respinge dacă între timp sursa s-a schimbat. Nu execută STOP/PLAY și nu schimbă fluxul PCM, sincronizarea, YouTube, YTM sau volumul cu pas 1.

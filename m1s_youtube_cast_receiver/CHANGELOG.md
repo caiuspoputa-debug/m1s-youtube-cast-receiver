@@ -1,3 +1,10 @@
+## 1.0.12 — Per-member mute stays under Home Assistant control
+
+- Cast volume updates change only `volume_level`; the add-on no longer calls `media_player.volume_mute`.
+- After a phone volume change, the add-on reads the target entity again and reports Home Assistant's actual mute state back to the sender.
+- A member muted from its Home Assistant tile therefore remains muted across Cast startup, track changes, phone volume changes and sender reconnection.
+- The one-point phone volume step, YouTube/YTM state bridge, continuous PCM stream, metadata update and synchronization behavior are unchanged.
+
 ## 1.0.11 — Home Assistant track metadata
 
 - Publish title, artist and YouTube/YouTube Music channel through the Aqara integration v0.20.8 metadata-only service.

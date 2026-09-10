@@ -1,3 +1,7 @@
+## Mute individual — versiunea 1.0.12
+
+Starea mute a unui membru se setează din tile-ul media playerului individual din Home Assistant. Add-on-ul nu apelează serviciul de mute din comenzile Cast. Telefonul poate modifica nivelul volumului cu pas de 1%, iar valoarea mute afișată expeditorului este recitită din Home Assistant după modificare.
+
 ## Titlul piesei — versiunea 1.0.11
 
 Pentru actualizarea titlului în entitatea Home Assistant este necesară integrarea Aqara v0.20.8. Add-on-ul trimite metadata fără comenzi de transport, la aproximativ patru secunde după începutul piesei. URL-ul sesiunii este verificat înainte de aplicare, astfel încât o actualizare întârziată nu poate suprascrie o sursă nouă.

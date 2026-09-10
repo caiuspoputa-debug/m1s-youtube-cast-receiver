@@ -1674,7 +1674,10 @@ class M1SPlayer extends Player {
       const level = Number.isFinite(requested)
         ? Math.min(100, Math.max(0, current.level + Math.sign(requested - current.level)))
         : current.level;
-      return super.setVolume({ level, muted: Boolean(volume?.muted) }, AID);
+      // Mute belongs to the Home Assistant media-player tile. Cast volume
+      // packets often contain muted=false even when the user only changed the
+      // level, so forwarding that field can silently unmute an individual hub.
+      return super.setVolume({ level, muted: current.muted }, AID);
     });
     this.phoneVolumeQueue = operation;
     try { return await operation; }
@@ -1687,10 +1690,18 @@ class M1SPlayer extends Player {
       return false;
     }
     const level = Math.min(100, Math.max(0, Number(volume?.level) || 0));
-    const muted = Boolean(volume?.muted);
     try {
       await haService(this.definition.entityId, 'volume_set', { volume_level: level / 100 });
-      await haService(this.definition.entityId, 'volume_mute', { is_volume_muted: muted });
+      // Never change mute from the Cast path. In this installation mute is a
+      // per-member Home Assistant setting controlled by that member's tile.
+      // Read it back so the phone sees the authoritative HA value.
+      let muted = this.volume.muted;
+      try {
+        const state = await haRequest(`/states/${encodeURIComponent(this.definition.entityId)}`);
+        muted = Boolean(state?.attributes?.is_volume_muted);
+      } catch (error) {
+        log('warn', `[${this.definition.name}] Could not refresh target mute after volume change.`, error.message);
+      }
       this.volume = { level, muted };
       return true;
     } catch (error) {
