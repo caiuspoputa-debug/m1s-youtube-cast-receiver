@@ -1,6 +1,6 @@
 {
   "name": "m1s-youtube-cast-receiver",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "private": true,
   "type": "module",
   "dependencies": {

@@ -1,4 +1,8 @@
-## 1.0.9 — YTM sidecar control/state fix (1.0.8 rolled back)
+## 1.0.10 — Buildable YTM sidecar bridge
+
+Fixes two source-matching errors in the 1.0.9 postinstall patch that prevented the Home Assistant add-on image from building. Active-session guards are now matched independent of line breaks, and the player-state function boundary is resolved after the actual function. The validation now inspects the installed, patched receiver code rather than merely checking text in the patch script. Running postinstall twice is supported. Playback behavior remains the 1.0.9 sidecar design; ordinary YouTube, continuous PCM, group restore and phone volume step 1 are unchanged.
+
+## 1.0.9 — YTM sidecar control/state fix (broken build; superseded by 1.0.10)
 
 Built from the working 1.0.7 playback path, not from 1.0.8. The 1.0.8 active-session promotion is removed because it made the generic YouTube lounge session inactive; `setPlaylist` / `play` arriving there were then rejected and YouTube Music could no longer start.
 

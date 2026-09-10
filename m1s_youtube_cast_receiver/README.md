@@ -1,4 +1,8 @@
-## 1.0.9 — YTM sidecar control/state fix (1.0.8 rolled back)
+## 1.0.10 — YTM sidecar bridge, build fix
+
+This release repairs the two postinstall source matches that made 1.0.9 fail during the Home Assistant image build. It keeps the 1.0.9 YTM bridge design and the working ordinary YouTube path. Rebuild/reinstall the add-on and verify that Home Assistant reports version 1.0.10.
+
+## 1.0.9 — YTM sidecar control/state fix (broken build; superseded)
 
 Built from the working 1.0.7 playback path, not from 1.0.8. The 1.0.8 active-session promotion is removed because it made the generic YouTube lounge session inactive; `setPlaylist` / `play` arriving there were then rejected and YouTube Music could no longer start.
 

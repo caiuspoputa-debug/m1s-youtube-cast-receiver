@@ -33,7 +33,7 @@ if (!source.includes(registrationMarker)) {
 }
 console.log('M1S 1.0.7: initial YTM senders registered for state publication.');
 
-const sidecarMarker = '// M1S 1.0.9 YTM sidecar state/control bridge';
+const sidecarMarker = '// M1S 1.0.10 YTM sidecar state/control bridge';
 source = fs.readFileSync(app, 'utf8').replace(/\r\n/g, '\n');
 if (!source.includes(sidecarMarker)) {
   // IMPORTANT: keep the active session unchanged. In live YTM traffic the actual
@@ -43,26 +43,27 @@ if (!source.includes(sidecarMarker)) {
 
   const incomingStart = source.indexOf('_YouTubeApp_handleIncomingMessage = async function _YouTubeApp_handleIncomingMessage');
   const incomingEnd = source.indexOf('}, _YouTubeApp_handleSenderConnected = async function _YouTubeApp_handleSenderConnected', incomingStart);
-  if (incomingStart < 0 || incomingEnd < 0) throw Error('YTM 1.0.9 incoming-message function target missing');
+  if (incomingStart < 0 || incomingEnd < 0) throw Error('YTM 1.0.10 incoming-message function target missing');
   let incoming = source.slice(incomingStart, incomingEnd);
 
   const dispatchNeedle = `    if (isSessionActive && ['setPlaylist', 'play', 'pause', 'stop', 'seekTo', 'next', 'previous'].includes(name)) {`;
-  if (incoming.split(dispatchNeedle).length !== 2) throw Error('YTM 1.0.9 dispatch target mismatch');
+  if (incoming.split(dispatchNeedle).length !== 2) throw Error('YTM 1.0.10 dispatch target mismatch');
   incoming = incoming.replace(dispatchNeedle, `    const m1sYtmSidecar = !isSessionActive && client?.key === 'YTMUSIC'
         && isMusicSender(__classPrivateFieldGet(this, _YouTubeApp_connectedSenders, "f"), client);
     const m1sCanControl = isSessionActive || m1sYtmSidecar;
     if (m1sCanControl && ['setPlaylist', 'play', 'pause', 'stop', 'seekTo', 'next', 'previous'].includes(name)) {`);
 
-  const guardCount = incoming.split('if (!isSessionActive) return;').length - 1;
-  if (guardCount < 8 || guardCount > 10) throw Error(`YTM 1.0.9 unexpected active-control guard count: ${guardCount}`);
-  incoming = incoming.replaceAll('if (!isSessionActive) return;', 'if (!m1sCanControl) return;');
+  const activeGuard = /if \(!isSessionActive\)\s*return;/g;
+  const guardCount = (incoming.match(activeGuard) || []).length;
+  if (guardCount < 8 || guardCount > 10) throw Error(`YTM 1.0.10 unexpected active-control guard count: ${guardCount}`);
+  incoming = incoming.replace(activeGuard, 'if (!m1sCanControl) return;');
 
   const nowPlayingOld = 'isSessionActive ? await __classPrivateFieldGet(this, _YouTubeApp_player, "f").getState() : null';
-  if (incoming.split(nowPlayingOld).length !== 2) throw Error('YTM 1.0.9 getNowPlaying target mismatch');
+  if (incoming.split(nowPlayingOld).length !== 2) throw Error('YTM 1.0.10 getNowPlaying target mismatch');
   incoming = incoming.replace(nowPlayingOld, 'm1sCanControl ? await __classPrivateFieldGet(this, _YouTubeApp_player, "f").getState() : null');
 
   const navOld = 'const playerNavInfo = isSessionActive ? __classPrivateFieldGet(this, _YouTubeApp_player, "f").getNavInfo() : null;';
-  if (incoming.split(navOld).length !== 2) throw Error('YTM 1.0.9 lounge navigation target mismatch');
+  if (incoming.split(navOld).length !== 2) throw Error('YTM 1.0.10 lounge navigation target mismatch');
   incoming = incoming.replace(navOld, 'const playerNavInfo = m1sCanControl ? __classPrivateFieldGet(this, _YouTubeApp_player, "f").getNavInfo() : null;');
 
   source = source.slice(0, incomingStart) + incoming + source.slice(incomingEnd);
@@ -71,12 +72,12 @@ if (!source.includes(sidecarMarker)) {
   // what the YTM phone UI needs for time / Pause / Previous / Next, while the
   // working YT lounge path remains the owner of initial playback.
   const stateStart = source.indexOf('_YouTubeApp_handlePlayerStateEvent = function _YouTubeApp_handlePlayerStateEvent');
-  const stateEnd = source.indexOf('    return super.emit(event, ...args);', stateStart);
-  if (stateStart < 0 || stateEnd < 0) throw Error('YTM 1.0.9 state-event function target missing');
+  const stateEnd = source.indexOf('\n};\nexport default YouTubeApp;', stateStart);
+  if (stateStart < 0 || stateEnd < 0) throw Error('YTM 1.0.10 state-event function target missing');
   let state = source.slice(stateStart, stateEnd);
   const activeSend = '__classPrivateFieldGet(this, _YouTubeApp_activeSession, "f").sendMessage(messages';
   const sendCount = state.split(activeSend).length - 1;
-  if (sendCount !== 2) throw Error(`YTM 1.0.9 expected two active state sends, got ${sendCount}`);
+  if (sendCount !== 2) throw Error(`YTM 1.0.10 expected two active state sends, got ${sendCount}`);
   const mirror = `const m1sYtmStateSession = __classPrivateFieldGet(this, _YouTubeApp_sessions, "f").YTMUSIC;
         const m1sActiveStateSession = __classPrivateFieldGet(this, _YouTubeApp_activeSession, "f");
         if (__classPrivateFieldGet(this, _YouTubeApp_player, "f").musicSenderActive
@@ -90,4 +91,4 @@ if (!source.includes(sidecarMarker)) {
 
   fs.writeFileSync(app, sidecarMarker + '\n' + source);
 }
-console.log('M1S 1.0.9: YTM sidecar state/control bridge applied; active playback session left unchanged.');
+console.log('M1S 1.0.10: YTM sidecar state/control bridge applied; active playback session left unchanged.');
