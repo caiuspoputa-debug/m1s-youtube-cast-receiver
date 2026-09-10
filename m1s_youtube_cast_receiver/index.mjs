@@ -894,6 +894,8 @@ class M1SPlayer extends Player {
     this.currentVideo = null;
     this.currentVideoId = null;
     this.title = null;
+    this.artist = null;
+    this.channel = null;
     this.duration = 0;
     this.basePosition = 0;
     this.startedAt = null;
@@ -906,6 +908,8 @@ class M1SPlayer extends Player {
     this.pendingPlay = null;
     this.playRequestEpoch = 0;
     this.musicSenderActive = false;
+    this.metadataPublishTimer = null;
+    this.metadataPublishedGeneration = 0;
     this.ownershipMonitor = null;
 
     // Sender ownership is tracked by yt-cast-receiver Sender.id. This is a
@@ -1260,10 +1264,14 @@ class M1SPlayer extends Player {
     this.currentVideo = video;
     this.currentVideoId = id;
     this.title = String(video?.title || `YouTube ${id}`);
+    this.artist = typeof video?.artist === 'string' ? video.artist.trim() || null : null;
+    this.channel = this.musicSenderActive ? 'YouTube Music' : 'YouTube';
     this.duration = Number(video?.duration || 0) || 0;
     this.basePosition = Math.max(0, Number(position) || 0);
     this.startedAt = null;
     this.paused = false;
+    if (this.metadataPublishTimer) clearTimeout(this.metadataPublishTimer);
+    this.metadataPublishTimer = null;
 
     if (!video?.title || this.title === `YouTube ${id}`) {
       try {
@@ -1283,8 +1291,12 @@ class M1SPlayer extends Player {
       const metadata = await getMetadata(videoId);
       if (generation !== this.playGeneration || videoId !== this.currentVideoId) return;
       this.title = metadata?.title || this.title;
+      this.artist = metadata?.artist || metadata?.uploader || metadata?.channel || this.artist;
       this.duration = Number(metadata?.duration || 0) || this.duration;
       log('debug', `[${this.definition.name}] Metadata ready: ${this.title}`, this.duration ? `${this.duration.toFixed(1)}s` : '');
+      if (this.metadataPublishedGeneration === generation) {
+        void this.publishHomeAssistantMetadata(videoId, generation);
+      }
     } catch (error) {
       log('debug', `[${this.definition.name}] Metadata lookup failed for ${videoId}.`, error.message);
     }
@@ -1340,6 +1352,7 @@ class M1SPlayer extends Player {
       this.startProgressUpdates();
       this.startedAt = transportAt;
       this.basePosition = prepared.position;
+      this.scheduleHomeAssistantMetadata(prepared.id, prepared.generation);
       log('info', `[${this.definition.name}] Continuous YT/YTM session is audible; no more HA Play/Stop at song boundaries.`);
       return true;
     } catch (error) {
@@ -1374,6 +1387,7 @@ class M1SPlayer extends Player {
     if (prepared.generation !== this.playGeneration || this.sessionRelinquished) return false;
     this.startedAt = audibleAt;
     this.basePosition = prepared.position;
+    this.scheduleHomeAssistantMetadata(prepared.id, prepared.generation);
     return true;
   }
 
@@ -1394,6 +1408,37 @@ class M1SPlayer extends Player {
     });
     this.pendingPlay = request;
     return request.promise;
+  }
+
+  scheduleHomeAssistantMetadata(videoId, generation) {
+    if (this.metadataPublishTimer) clearTimeout(this.metadataPublishTimer);
+    this.metadataPublishTimer = setTimeout(() => {
+      this.metadataPublishTimer = null;
+      void this.publishHomeAssistantMetadata(videoId, generation);
+    }, 4000);
+    this.metadataPublishTimer.unref?.();
+  }
+
+  async publishHomeAssistantMetadata(videoId, generation) {
+    const session = this.continuousSession;
+    if (!session?.active || !this.ownsTarget || this.sessionRelinquished
+        || generation !== this.playGeneration || videoId !== this.currentVideoId) return false;
+    try {
+      await haDomainService('aqara_m1s_zigbee_router', 'update_media_metadata', {
+        entity_id: this.definition.entityId,
+        expected_media_content_id: session.url,
+        title: this.title || `YouTube ${videoId}`,
+        artist: this.artist || '',
+        channel: this.channel || (this.musicSenderActive ? 'YouTube Music' : 'YouTube')
+      });
+      if (session === this.continuousSession && generation === this.playGeneration) {
+        this.metadataPublishedGeneration = generation;
+      }
+      return true;
+    } catch (error) {
+      log('debug', `[${this.definition.name}] Home Assistant metadata update unavailable.`, error?.message || String(error));
+      return false;
+    }
   }
 
   async resume(AID) {
@@ -1560,6 +1605,9 @@ class M1SPlayer extends Player {
   }
 
   async doStop() {
+    if (this.metadataPublishTimer) clearTimeout(this.metadataPublishTimer);
+    this.metadataPublishTimer = null;
+    this.metadataPublishedGeneration = 0;
     this.stopProgressUpdates();
     const session = this.continuousSession;
     const expectedPath = this.expectedStreamPath();

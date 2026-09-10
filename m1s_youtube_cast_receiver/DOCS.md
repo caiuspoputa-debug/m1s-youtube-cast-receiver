@@ -1,3 +1,7 @@
+## Titlul piesei — versiunea 1.0.11
+
+Pentru actualizarea titlului în entitatea Home Assistant este necesară integrarea Aqara v0.20.8. Add-on-ul trimite metadata fără comenzi de transport, la aproximativ patru secunde după începutul piesei. URL-ul sesiunii este verificat înainte de aplicare, astfel încât o actualizare întârziată nu poate suprascrie o sursă nouă.
+
 ## 1.0.7 — Stare completă pentru YouTube Music
 
 Înregistrează în add-on expeditorii YTM deja recunoscuți de bibliotecă la pornire, chiar dacă evenimentul senderConnect nu a fost emis. Registrul acesta condiționează actualizările periodice de progres. Pentru sesiuni identificate ca YTM, trimite starea completă a piesei, duratei, progresului și navigării, inclusiv în pauză. Respinge instantaneele depășite și nu forțează PLAYING când playerul este oprit.

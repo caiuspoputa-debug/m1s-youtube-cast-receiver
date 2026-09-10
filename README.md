@@ -1,3 +1,9 @@
+## 1.0.11 — Titlul piesei în Home Assistant
+
+Publică titlul, artistul și sursa către integrarea Aqara v0.20.8 la aproximativ patru secunde după ce piesa devine audibilă. Actualizarea conține URL-ul exact al sesiunii active; integrarea o respinge dacă între timp sursa s-a schimbat. Nu execută STOP/PLAY și nu schimbă fluxul PCM, sincronizarea, YouTube, YTM sau volumul cu pas 1.
+
+Necesită instalarea împreună cu integrarea Aqara v0.20.8 și reconstruirea add-on-ului.
+
 ## 1.0.10 — YTM sidecar bridge, build fix
 
 This release repairs the two postinstall source matches that made 1.0.9 fail during the Home Assistant image build. It keeps the 1.0.9 YTM bridge design and the working ordinary YouTube path. Rebuild/reinstall the add-on and verify that Home Assistant reports version 1.0.10.

@@ -1,3 +1,10 @@
+## 1.0.11 — Home Assistant track metadata
+
+- Publish title, artist and YouTube/YouTube Music channel through the Aqara integration v0.20.8 metadata-only service.
+- Delay the update by four seconds after the new track becomes audible; late extractor results correct the same active track afterward.
+- Bind every update to the exact continuous-session URL and current generation. Stale, stopped and externally replaced sessions cannot update attributes.
+- No media transport service is called. Continuous PCM, synchronization, ordinary YouTube, the YTM sidecar bridge and phone volume step 1 are unchanged.
+
 ## 1.0.10 — Buildable YTM sidecar bridge
 
 Fixes two source-matching errors in the 1.0.9 postinstall patch that prevented the Home Assistant add-on image from building. Active-session guards are now matched independent of line breaks, and the player-state function boundary is resolved after the actual function. The validation now inspects the installed, patched receiver code rather than merely checking text in the patch script. Running postinstall twice is supported. Playback behavior remains the 1.0.9 sidecar design; ordinary YouTube, continuous PCM, group restore and phone volume step 1 are unchanged.
