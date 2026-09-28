@@ -1,3 +1,7 @@
+## 1.0.13 — Icon Home Assistant Apps
+
+Adaugă icon pentru add-on, afișat în Apps / Add-ons din Home Assistant, fără schimbări de funcționare pentru receiver. Structura și comportamentul runtime rămân identice cu 1.0.12.
+
 ## 1.0.12 — Per-member mute stays under Home Assistant control
 
 - Cast volume updates change only `volume_level`; the add-on no longer calls `media_player.volume_mute`.

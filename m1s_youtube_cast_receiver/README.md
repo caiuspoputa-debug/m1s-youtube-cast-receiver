@@ -1,3 +1,7 @@
+## 1.0.13 — Icon Home Assistant Apps
+
+Adaugă icon pentru add-on, afișat în Apps / Add-ons din Home Assistant, fără schimbări de funcționare pentru receiver. Structura și comportamentul runtime rămân identice cu 1.0.12.
+
 ## 1.0.12 — Mute individual păstrat din Home Assistant
 
 Mute-ul fiecărui membru al grupului rămâne controlat exclusiv din tile-ul media playerului din Home Assistant. Comenzile Cast de volum schimbă numai nivelul, în continuare cu pas de 1%, și nu mai pot trimite automat `unmute`. După schimbarea volumului, add-on-ul recitește starea reală de mute din Home Assistant și o raportează telefonului.
