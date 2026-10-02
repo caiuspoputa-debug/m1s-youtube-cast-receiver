@@ -1,3 +1,22 @@
+1.0.15: added a Home Assistant Ingress editor that automatically lists the
+discovered group and individual receivers. The UI accepts only the editable
+name after a fixed MP prefix; no entity ID must be entered manually. Names are
+stored in /data/cast-friendly-names.json and take effect after add-on restart.
+Legacy 1.0.14 individual_friendly_names values are migrated before that option
+is removed through the Supervisor API. Migration failure does not block the
+receiver startup.
+
+All naming, migration, Ingress API, YouTube/YTM playback, transition,
+navigation, metadata, volume and mute tests pass. config.yaml and both
+translation files parse as YAML, and run.sh passes bash syntax validation. The
+index.mjs audio core from class JsonDataStore through M1SPlayer is byte-identical
+to 1.0.14 (60,391 characters; SHA-256
+BE7F275EDA9B67A55BB9232E6795B3D4DAE371F2A32680EE6F2D80A91DCDEE3C).
+The receiver creation runtime is also byte-identical (2,688 characters;
+SHA-256 7E0801356FF440E2F7FFAF8173385E3A05BF5A703DECFA30BD6A3201DD197432).
+queue-handler.mjs and all three postinstall playback patches are unchanged.
+No physical phone/Home Assistant validation or Docker image build was available.
+
 1.0.14: added add-on settings for custom group and individual Cast friendly
 names with a code-enforced MP prefix. The focused naming tests and the complete
 existing YouTube/YTM playback, transition, navigation, metadata, volume and mute

@@ -27,6 +27,9 @@ RUN npm install --omit=dev --no-audit --no-fund
 COPY index.mjs /app/index.mjs
 COPY queue-handler.mjs /app/queue-handler.mjs
 COPY friendly-names.mjs /app/friendly-names.mjs
+COPY friendly-name-store.mjs /app/friendly-name-store.mjs
+COPY friendly-name-settings.mjs /app/friendly-name-settings.mjs
+COPY migrate-friendly-name-options.mjs /app/migrate-friendly-name-options.mjs
 COPY run.sh /run.sh
 RUN chmod a+x /run.sh
 

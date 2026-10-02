@@ -1,14 +1,4 @@
 configuration:
   device_name:
-    name: Numele grupului
-    description: Introdu numele custom fără MP. Prefixul fix MP este adăugat automat.
-  individual_friendly_names:
-    name: Nume custom individuale
-    description: Asociază fiecărui media player din Home Assistant un nume Cast custom. Prefixul fix MP este adăugat automat.
-    fields:
-      entity_id:
-        name: Entitatea media player
-        description: ID-ul exact al entității media_player din Home Assistant.
-      friendly_name:
-        name: Friendly name custom
-        description: Introdu numai numele dorit, de exemplu Living. Va apărea ca MP Living.
+    name: Numele de rezervă al grupului
+    description: Folosit până când salvezi numele grupului în M1S Cast Names. Prefixul fix MP este adăugat automat.

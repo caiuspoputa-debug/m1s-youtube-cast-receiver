@@ -1,6 +1,6 @@
 const FIXED_PREFIX = 'MP';
 
-function withoutPrefix(value) {
+export function friendlyNameBase(value) {
   return String(value || '')
     .replace(/^\s*mp(?:\s+|-)+/i, '')
     .replace(/\s+/g, ' ')
@@ -8,7 +8,7 @@ function withoutPrefix(value) {
 }
 
 export function castFriendlyName(value, fallback = 'Receiver') {
-  const base = withoutPrefix(value) || withoutPrefix(fallback) || 'Receiver';
+  const base = friendlyNameBase(value) || friendlyNameBase(fallback) || 'Receiver';
   return `${FIXED_PREFIX} ${base}`;
 }
 

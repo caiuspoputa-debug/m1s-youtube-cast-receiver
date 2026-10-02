@@ -1,13 +1,13 @@
 {
   "name": "m1s-youtube-cast-receiver",
-  "version": "1.0.14",
+  "version": "1.0.15",
   "private": true,
   "type": "module",
   "dependencies": {
     "yt-cast-receiver": "2.1.0"
   },
   "scripts": {
-    "test": "node tests/friendly-names.mjs && node tests/regression.mjs && node tests/transition.mjs && node tests/navigation.mjs && node tests/ytm-sidecar-static.mjs && node tests/ha-metadata.mjs && node tests/member-mute.mjs",
+    "test": "node tests/friendly-names.mjs && node tests/friendly-name-migration.mjs && node tests/friendly-name-settings.mjs && node tests/regression.mjs && node tests/transition.mjs && node tests/navigation.mjs && node tests/ytm-sidecar-static.mjs && node tests/ha-metadata.mjs && node tests/member-mute.mjs",
     "postinstall": "node patch-receiver.mjs && node patch-music.mjs && node patch-volume.mjs"
   }
 }

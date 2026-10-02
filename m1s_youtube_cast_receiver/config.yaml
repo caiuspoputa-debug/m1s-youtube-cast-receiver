@@ -1,5 +1,5 @@
 name: "M1S YouTube Cast Receiver"
-version: "1.0.14"
+version: "1.0.15"
 slug: "m1s_youtube_cast_receiver"
 description: >-
   YouTube / YouTube Music continuous-stream receiver for Aqara M1S individual
@@ -12,10 +12,16 @@ url: "https://github.com/caiuspoputa-debug/m1s-youtube-cast-receiver"
 init: false
 host_network: true
 homeassistant_api: true
+hassio_api: true
+ingress: true
+ingress_port: 8100
+ingress_entry: /settings
+panel_icon: mdi:cast-audio
+panel_title: M1S Cast Names
+panel_admin: true
 options:
   target_entity: "media_player.m1s_media_group"
   device_name: "Group"
-  individual_friendly_names: []
   audio_port: 8098
   dial_port: 8099
   stream_host: ""
@@ -32,9 +38,6 @@ options:
 schema:
   target_entity: str
   device_name: str
-  individual_friendly_names:
-    - entity_id: str
-      friendly_name: str
   audio_port: port
   dial_port: port
   stream_host: str

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   castFriendlyName,
+  friendlyNameBase,
   friendlyNameOverride,
   parseFriendlyNameOverrides
 } from '../friendly-names.mjs';
@@ -9,6 +10,7 @@ assert.equal(castFriendlyName('Living'), 'MP Living');
 assert.equal(castFriendlyName('MP Living'), 'MP Living');
 assert.equal(castFriendlyName('  MP   Living  '), 'MP Living');
 assert.equal(castFriendlyName('', 'Group'), 'MP Group');
+assert.equal(friendlyNameBase('MP Balcon'), 'Balcon');
 
 const overrides = parseFriendlyNameOverrides([
   {

@@ -11,17 +11,30 @@ import {
   friendlyNameOverride,
   parseFriendlyNameOverrides
 } from './friendly-names.mjs';
+import { readFriendlyNameEntries } from './friendly-name-store.mjs';
+import { createFriendlyNameSettingsServer } from './friendly-name-settings.mjs';
 const SenderQueueHandler = createQueueHandler(DefaultPlaylistRequestHandler, Constants.AUTOPLAY_MODES.ENABLED);
 
 const OPTIONS_PATH = '/data/options.json';
 const YTDLP = '/opt/yt-dlp/bin/yt-dlp';
+const FRIENDLY_NAME_SETTINGS_PORT = 8100;
 
 function readOptions() {
   const raw = JSON.parse(fs.readFileSync(OPTIONS_PATH, 'utf8'));
+  const targetEntity = String(raw.target_entity || 'media_player.m1s_media_group');
+  const individualFriendlyNames = parseFriendlyNameOverrides([
+    ...(Array.isArray(raw.individual_friendly_names) ? raw.individual_friendly_names : []),
+    ...readFriendlyNameEntries()
+  ]);
   return {
-    targetEntity: String(raw.target_entity || 'media_player.m1s_media_group'),
-    deviceName: castFriendlyName(raw.device_name || 'Group', 'Group'),
-    individualFriendlyNames: parseFriendlyNameOverrides(raw.individual_friendly_names),
+    targetEntity,
+    deviceName: castFriendlyName(
+      friendlyNameOverride(individualFriendlyNames, targetEntity)
+        || raw.device_name
+        || 'Group',
+      'Group'
+    ),
+    individualFriendlyNames,
     audioPort: Number(raw.audio_port || 8098),
     dialPort: Number(raw.dial_port || 8099),
     streamHost: String(raw.stream_host || '').trim(),
@@ -1786,6 +1799,23 @@ for (const def of receiverDefinitions) {
   log('info', `Receiver: "${def.name}"`, `${def.entityId} DIAL:${def.port}${switchInfo}`);
 }
 
+let friendlyNameSettingsServer = null;
+try {
+  friendlyNameSettingsServer = createFriendlyNameSettingsServer({
+    getDefinitions: () => receiverDefinitions,
+    logger: log
+  });
+  await new Promise((resolve, reject) => {
+    friendlyNameSettingsServer.once('error', reject);
+    friendlyNameSettingsServer.listen(FRIENDLY_NAME_SETTINGS_PORT, '0.0.0.0', () => resolve());
+  });
+  log('info', `Cast-name settings ready through Home Assistant Ingress on port ${FRIENDLY_NAME_SETTINGS_PORT}.`);
+} catch (error) {
+  log('warn', 'Cast-name settings page is unavailable; playback will continue normally.', error?.message || String(error));
+  try { friendlyNameSettingsServer?.close(); } catch (_) {}
+  friendlyNameSettingsServer = null;
+}
+
 await new Promise((resolve, reject) => {
   audioServer.once('error', reject);
   audioServer.listen(cfg.audioPort, '0.0.0.0', () => resolve());
@@ -1862,6 +1892,10 @@ async function shutdown(signal) {
   for (const item of runtimeReceivers.reverse()) {
     try { item.pairing.stop(); } catch (_) {}
     try { await item.receiver.stop(); } catch (_) {}
+  }
+  if (friendlyNameSettingsServer) {
+    await new Promise((resolve) => friendlyNameSettingsServer.close(() => resolve()));
+    friendlyNameSettingsServer = null;
   }
   await new Promise((resolve) => audioServer.close(() => resolve()));
   process.exit(0);

@@ -1,3 +1,15 @@
+## 1.0.15 — Nume Cast selectate automat
+
+Adaugă ecranul Home Assistant Ingress `M1S Cast Names`. Grupul și playerele
+individuale sunt detectate și afișate automat; utilizatorul schimbă numai
+numele după prefixul fix `MP`, fără să copieze ID-uri de entitate. Numele sunt
+păstrate în datele persistente ale add-on-ului și se aplică după repornire.
+
+La upgrade, numele configurate în 1.0.14 sunt migrate înainte de eliminarea
+opțiunii vechi. Serverul mic pentru setări este separat de traseul audio. PLAY,
+STOP, Pause, Next, sesiunea continuă, fluxul PCM, sincronizarea cu telefonul,
+coada, volumul și restaurarea grupului rămân neschimbate.
+
 ## 1.0.14 — Nume Cast custom cu prefix MP fix
 
 Adaugă în setările add-on-ului lista `individual_friendly_names`. Utilizatorul

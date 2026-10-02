@@ -1,3 +1,20 @@
+## 1.0.15 — Listă automată pentru numele Cast
+
+Add-on-ul are acum propriul ecran Home Assistant, `M1S Cast Names`. Acesta
+afișează automat grupul și toate receiverele individuale descoperite, împreună
+cu entitatea lor. Se modifică numai numele camerei; prefixul `MP` este fix și
+vizibil lângă fiecare câmp. Nu mai trebuie copiat niciun `entity_id` din Home
+Assistant.
+
+După salvare, repornește add-on-ul pentru ca telefonul să primească noile nume.
+La upgrade de la 1.0.14, numele introduse în vechea listă sunt migrate automat,
+iar opțiunea veche este eliminată. Dacă nu există un nume salvat, se folosește
+în continuare numele găsit în Home Assistant.
+
+Ecranul rulează separat de receiver. PLAY, STOP, Pause, Next, coada, sesiunea
+PCM continuă, volumul, apartenența la grup și sincronizarea cu telefonul nu sunt
+modificate față de 1.0.14.
+
 ## 1.0.14 — Nume Cast custom cu prefix MP fix
 
 În setările add-on-ului, `device_name` stabilește numele de bază al grupului,

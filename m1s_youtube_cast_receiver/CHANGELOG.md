@@ -1,3 +1,16 @@
+## 1.0.15 — Automatic Cast-name editor
+
+- Add a Home Assistant Ingress page that lists the discovered group and
+  individual receivers automatically. The user edits only the friendly name;
+  the fixed `MP` prefix and entity association are shown without manual entry.
+- Store names in `/data/cast-friendly-names.json` and apply them after an
+  add-on restart.
+- Migrate any 1.0.14 `individual_friendly_names` values before removing that
+  legacy option from the Supervisor configuration.
+- Keep the settings HTTP server isolated from the receiver and audio server.
+  PLAY, STOP, Pause, Next, queue ownership, continuous PCM transport, volume,
+  group restoration and phone synchronization are unchanged from 1.0.14.
+
 ## 1.0.14 — Custom Cast names with fixed MP prefix
 
 - Add `individual_friendly_names` to the add-on settings. Each entry maps one

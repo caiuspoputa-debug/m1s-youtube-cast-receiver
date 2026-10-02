@@ -1,30 +1,25 @@
-## Nume Cast custom — versiunea 1.0.14
+## Nume Cast custom — versiunea 1.0.15
 
-În Settings / Configuration pentru add-on:
+1. Instalează sau actualizează add-on-ul și pornește-l o dată, pentru ca acesta
+   să descopere grupul și playerele individuale.
+2. Deschide pagina add-on-ului și apasă `Open Web UI` / `Deschide interfața web`.
+3. În `M1S Cast Names` sunt afișate automat toate receiverele detectate. Nu
+   trebuie introdus niciun ID de entitate.
+4. Modifică doar textul de după prefixul fix `MP`, apoi apasă `Salvează numele`.
+5. Repornește add-on-ul. YouTube și YouTube Music vor vedea noile etichete.
 
-- `device_name` este numele de bază al receiverului de grup. Valoarea `Group`
-  va apărea în YouTube/YTM ca `MP Group`.
-- `individual_friendly_names` este lista numelor custom pentru receiverele
-  individuale. Fiecare rând conține entitatea Home Assistant și numele dorit,
-  fără prefix.
+Exemplu: valoarea `Living` este publicată ca `MP Living`. Dacă introduci deja
+`MP Living`, prefixul nu este dublat. Un câmp lăsat fără nume custom revine la
+numele descoperit în Home Assistant. `device_name` rămâne numai fallback-ul
+grupului, pentru situația în care pagina nu are încă un nume salvat.
 
-Exemplu:
+La upgrade de la 1.0.14, valorile din vechea opțiune
+`individual_friendly_names` sunt migrate automat în noul fișier persistent și
+opțiunea este eliminată din configurație. Ecranul de nume acceptă numai cereri
+rutate prin Home Assistant Ingress.
 
-```yaml
-device_name: "Grup"
-individual_friendly_names:
-  - entity_id: "media_player.aqara_m1s_zigbee_router_192_168_0_221_media_player"
-    friendly_name: "Balcon"
-  - entity_id: "media_player.aqara_m1s_zigbee_router_192_168_0_222_media_player"
-    friendly_name: "Dormitor"
-```
-
-Telefonul va afișa `MP Grup`, `MP Balcon` și `MP Dormitor`. Prefixul `MP` este
-fix și este adăugat automat. După modificarea setărilor este suficientă
-repornirea add-on-ului deja construit cu versiunea 1.0.14.
-
-Setarea schimbă exclusiv etichetele DIAL. Nu schimbă PLAY, STOP, Pause, Next,
-fluxul PCM, sincronizarea, volumul sau apartenența la grup.
+Această funcție schimbă exclusiv etichetele DIAL. Nu schimbă PLAY, STOP, Pause,
+Next, fluxul PCM, sincronizarea, volumul sau apartenența la grup.
 
 ## Mute individual — versiunea 1.0.12
 
@@ -110,8 +105,7 @@ With `auto_remove_individual_from_group: true`, an M1S selected directly can be 
 ## Options
 
 - `target_entity`: group media player entity.
-- `device_name`: base group receiver name; the fixed `MP` prefix is added automatically.
-- `individual_friendly_names`: optional entity-to-name list for individual receivers; the fixed `MP` prefix is added automatically.
+- `device_name`: fallback group receiver name before a custom name is saved in `M1S Cast Names`; the fixed `MP` prefix is added automatically.
 - `audio_port`: continuous audio HTTP port.
 - `dial_port`: first DIAL port.
 - `stream_host`: blank uses automatic LAN IPv4 detection.
