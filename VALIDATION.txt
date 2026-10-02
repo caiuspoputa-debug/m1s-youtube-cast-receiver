@@ -1,3 +1,10 @@
+1.0.16: fixed the confirmed v1.0.15 startup failure caused by the Cast-name
+Ingress server and the first individual DIAL receiver both binding port 8100.
+Ingress now uses port 18199. A dedicated layout test validates that this port
+does not overlap audio_port or any configured DIAL receiver port. Playback,
+continuous PCM, synchronization, queue, volume and Cast-control code are
+unchanged from 1.0.15.
+
 1.0.15: added a Home Assistant Ingress editor that automatically lists the
 discovered group and individual receivers. The UI accepts only the editable
 name after a fixed MP prefix; no entity ID must be entered manually. Names are

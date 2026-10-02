@@ -1,3 +1,13 @@
+## 1.0.16 — Corecție port pentru pagina de nume
+
+Corectează oprirea add-on-ului din 1.0.15. Pagina `M1S Cast Names` folosea
+portul `8100`, același port alocat primului receiver individual după baza DIAL
+`8099`. Serverul paginii este mutat pe `18199`, în afara intervalului audio și
+DIAL, iar un test verifică automat această separare.
+
+Redarea, fluxul PCM continuu, sincronizarea, comenzile Cast, coada, volumul și
+restaurarea grupului nu sunt modificate.
+
 ## 1.0.15 — Listă automată pentru numele Cast
 
 Add-on-ul are acum propriul ecran Home Assistant, `M1S Cast Names`. Acesta

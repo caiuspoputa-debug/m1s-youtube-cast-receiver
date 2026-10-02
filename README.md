@@ -1,3 +1,13 @@
+## 1.0.16 — Corecție critică port Ingress
+
+Mută pagina `M1S Cast Names` de pe portul `8100` pe `18199`. În 1.0.15,
+portul `8100` era ocupat simultan de pagina de nume și de primul receiver
+individual DIAL, iar add-on-ul se oprea cu `EADDRINUSE`. Un test nou împiedică
+reintroducerea suprapunerii cu porturile audio sau DIAL.
+
+Codul PLAY, sesiunea PCM continuă, sincronizarea, coada, volumul și comenzile
+YouTube/YTM nu sunt schimbate.
+
 ## 1.0.15 — Nume Cast selectate automat
 
 Adaugă ecranul Home Assistant Ingress `M1S Cast Names`. Grupul și playerele

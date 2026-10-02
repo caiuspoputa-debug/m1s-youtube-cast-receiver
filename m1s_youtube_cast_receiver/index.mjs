@@ -17,7 +17,7 @@ const SenderQueueHandler = createQueueHandler(DefaultPlaylistRequestHandler, Con
 
 const OPTIONS_PATH = '/data/options.json';
 const YTDLP = '/opt/yt-dlp/bin/yt-dlp';
-const FRIENDLY_NAME_SETTINGS_PORT = 8100;
+const FRIENDLY_NAME_SETTINGS_PORT = 18199;
 
 function readOptions() {
   const raw = JSON.parse(fs.readFileSync(OPTIONS_PATH, 'utf8'));

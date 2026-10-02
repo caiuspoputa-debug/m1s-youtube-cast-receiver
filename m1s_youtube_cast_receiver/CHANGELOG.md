@@ -1,3 +1,12 @@
+## 1.0.16 — Ingress/DIAL port collision fix
+
+- Move the Cast-name Ingress server from port 8100 to 18199. Port 8100 is the
+  first individual DIAL receiver when the default DIAL base is 8099; using it
+  for both services stopped the entire receiver set with `EADDRINUSE`.
+- Add a regression test proving that the Ingress port is outside both the audio
+  bridge port and the complete configured DIAL receiver range.
+- No playback, PCM, synchronization, queue, volume or Cast-control code changes.
+
 ## 1.0.15 — Automatic Cast-name editor
 
 - Add a Home Assistant Ingress page that lists the discovered group and

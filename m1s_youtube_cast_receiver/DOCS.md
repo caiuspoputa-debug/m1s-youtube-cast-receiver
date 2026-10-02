@@ -1,4 +1,8 @@
-## Nume Cast custom — versiunea 1.0.15
+## Nume Cast custom — versiunea 1.0.16
+
+Versiunea 1.0.16 trebuie folosită în locul versiunii 1.0.15. Aceasta mută
+pagina de nume de pe portul `8100`, care se suprapunea cu primul receiver
+individual DIAL, pe portul intern `18199`.
 
 1. Instalează sau actualizează add-on-ul și pornește-l o dată, pentru ca acesta
    să descopere grupul și playerele individuale.
