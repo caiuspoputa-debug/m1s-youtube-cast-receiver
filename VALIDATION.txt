@@ -1,3 +1,8 @@
+1.0.19: broadened individual receiver discovery to aqara_m1s_zigbee so both
+the coordinator and routers are listed. The former router-only default is
+normalized and migrated automatically. Focused tests cover coordinator, router,
+unrelated and custom-filter cases. Naming UI and audio/Cast code are unchanged.
+
 1.0.18: fixed the browser-side syntax error that left the Cast-name receiver
 panel empty. The test suite now extracts and compiles the actual script served
 inside the HTML page, then verifies both page and API routes. The Ingress path,

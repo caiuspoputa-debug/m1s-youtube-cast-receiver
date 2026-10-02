@@ -1,4 +1,9 @@
-## Nume Cast custom — versiunea 1.0.18
+## Nume Cast custom — versiunea 1.0.19
+
+Versiunea 1.0.19 include automat coordinatorul și routerele prin filtrul
+`aqara_m1s_zigbee`. Valoarea implicită veche este migrată la pornire. După
+restart, pagina trebuie să afișeze șapte receivere: grupul, coordinatorul și
+cele cinci routere.
 
 Folosește versiunea 1.0.18. Aceasta corectează scriptul browserului care lăsa
 lista huburilor goală în versiunile anterioare ale paginii de nume.

@@ -1,3 +1,13 @@
+## 1.0.19 — Coordinator inclus în lista individuală
+
+Filtrul implicit devine `aqara_m1s_zigbee`, astfel încât sunt descoperite atât
+coordinatorul, cât și routerele. Valoarea veche
+`aqara_m1s_zigbee_router` este migrată automat și este tratată compatibil ca
+noul filtru, deci upgrade-ul nu necesită modificări manuale.
+
+Pagina de nume va afișa grupul, coordinatorul și cele cinci routere. Traseul
+audio, sincronizarea și comenzile Cast nu sunt modificate.
+
 ## 1.0.18 — Corecție încărcare listă huburi
 
 Corectează scriptul paginii `M1S Cast Names`, care se oprea înainte să solicite

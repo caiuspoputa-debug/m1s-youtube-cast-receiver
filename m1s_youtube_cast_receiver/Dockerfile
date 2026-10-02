@@ -30,6 +30,7 @@ COPY friendly-names.mjs /app/friendly-names.mjs
 COPY friendly-name-store.mjs /app/friendly-name-store.mjs
 COPY friendly-name-settings.mjs /app/friendly-name-settings.mjs
 COPY migrate-friendly-name-options.mjs /app/migrate-friendly-name-options.mjs
+COPY receiver-discovery.mjs /app/receiver-discovery.mjs
 COPY run.sh /run.sh
 RUN chmod a+x /run.sh
 

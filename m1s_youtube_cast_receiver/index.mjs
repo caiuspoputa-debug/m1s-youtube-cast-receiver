@@ -13,6 +13,10 @@ import {
 } from './friendly-names.mjs';
 import { readFriendlyNameEntries } from './friendly-name-store.mjs';
 import { createFriendlyNameSettingsServer } from './friendly-name-settings.mjs';
+import {
+  individualReceiverMatches,
+  normalizeIndividualMatch
+} from './receiver-discovery.mjs';
 const SenderQueueHandler = createQueueHandler(DefaultPlaylistRequestHandler, Constants.AUTOPLAY_MODES.ENABLED);
 
 const OPTIONS_PATH = '/data/options.json';
@@ -40,7 +44,7 @@ function readOptions() {
     streamHost: String(raw.stream_host || '').trim(),
     enableTvCode: raw.enable_tv_code !== false,
     includeIndividual: raw.include_individual !== false,
-    individualMatch: String(raw.individual_match || 'aqara_m1s_zigbee_router').toLowerCase(),
+    individualMatch: normalizeIndividualMatch(raw.individual_match),
     maxReceivers: Math.max(1, Number(raw.max_receivers || 16)),
     autoRemoveIndividualFromGroup: raw.auto_remove_individual_from_group !== false,
     autoRestoreIndividualToGroup: raw.auto_restore_individual_to_group !== false,
@@ -257,8 +261,7 @@ async function discoverReceiverDefinitions() {
       const entityId = String(state?.entity_id || '');
       if (!entityId.startsWith('media_player.')) return false;
       if (entityId === cfg.targetEntity) return false;
-      const friendly = String(state?.attributes?.friendly_name || '');
-      return `${entityId} ${friendly}`.toLowerCase().includes(cfg.individualMatch);
+      return individualReceiverMatches(state, cfg.individualMatch);
     })
     .sort((a, b) => receiverNameFromState(a).localeCompare(receiverNameFromState(b)));
 

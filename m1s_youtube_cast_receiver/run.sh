@@ -16,5 +16,14 @@ else
   bashio::log.warning "Could not inspect legacy add-on options; startup will continue."
 fi
 
+legacy_individual_match='aqara_m1s_zigbee_router'
+current_individual_match="$(bashio::config 'individual_match' '')"
+if [[ "${current_individual_match}" == "${legacy_individual_match}" ]]; then
+  bashio::log.info "Expanding individual receiver discovery to include the M1S coordinator."
+  if ! bashio::addon.option 'individual_match' 'aqara_m1s_zigbee'; then
+    bashio::log.warning "Could not persist the expanded individual_match option; runtime discovery will still include the coordinator."
+  fi
+fi
+
 bashio::log.info "Starting M1S YouTube Cast Receiver..."
 exec node /app/index.mjs

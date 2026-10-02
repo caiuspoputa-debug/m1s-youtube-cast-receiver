@@ -1,3 +1,10 @@
+## 1.0.19 — Descoperire coordinator și routere
+
+Extinde filtrul implicit de la routere la toate entitățile
+`aqara_m1s_zigbee`, astfel încât coordinatorul apare împreună cu cele cinci
+routere. Setarea veche este migrată automat. Redarea și sincronizarea nu sunt
+modificate.
+
 ## 1.0.18 — Corecție listă goală în pagina de nume
 
 Corectează eroarea JavaScript care împiedica pagina `M1S Cast Names` să încarce

@@ -1,3 +1,13 @@
+## 1.0.19 — Coordinator included in individual receivers
+
+- Broaden the default discovery match from `aqara_m1s_zigbee_router` to
+  `aqara_m1s_zigbee`, including both the coordinator and routers.
+- Treat the former default as a compatibility alias for the broader match and
+  migrate the persisted add-on option at startup.
+- Add focused tests for the coordinator entity, router entities, unrelated
+  media players and user-provided custom filters.
+- Keep the naming UI, Ingress fixes and complete audio/Cast path unchanged.
+
 ## 1.0.18 — Cast-name page client-script fix
 
 - Replace the path-building regular expression whose escape was consumed by
