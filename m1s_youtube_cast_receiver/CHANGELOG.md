@@ -1,3 +1,19 @@
+## 1.0.14 — Custom Cast names with fixed MP prefix
+
+- Add `individual_friendly_names` to the add-on settings. Each entry maps one
+  Home Assistant `media_player` entity to the custom room name entered by the
+  user.
+- Publish every group and individual DIAL receiver with the fixed `MP` prefix.
+  Entering `Living` produces `MP Living`; entering `MP Living` does not duplicate
+  the prefix.
+- Keep Home Assistant `friendly_name` as the fallback only when no custom name
+  was configured for that entity.
+- Keep the persistent DIAL identity and reconnection context. No extra SSDP
+  refresh loop is added.
+- PLAY, STOP, Pause, Next, queue ownership, continuous PCM transport, volume,
+  group membership restoration and phone synchronization are unchanged from
+  1.0.13.
+
 ## 1.0.13 — Icon Home Assistant Apps
 
 Adaugă icon pentru add-on, afișat în Apps / Add-ons din Home Assistant, fără schimbări de funcționare pentru receiver. Structura și comportamentul runtime rămân identice cu 1.0.12.

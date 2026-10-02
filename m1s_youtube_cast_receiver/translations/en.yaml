@@ -1,0 +1,14 @@
+configuration:
+  device_name:
+    name: Group friendly name
+    description: Enter the custom name without MP. The fixed MP prefix is added automatically.
+  individual_friendly_names:
+    name: Individual friendly names
+    description: Assign a custom Cast name to each Home Assistant media player. The fixed MP prefix is added automatically.
+    fields:
+      entity_id:
+        name: Media player entity
+        description: Exact Home Assistant media_player entity ID.
+      friendly_name:
+        name: Custom friendly name
+        description: Enter only the desired name, for example Living. It will appear as MP Living.

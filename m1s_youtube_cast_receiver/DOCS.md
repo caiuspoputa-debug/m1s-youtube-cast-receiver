@@ -1,3 +1,31 @@
+## Nume Cast custom — versiunea 1.0.14
+
+În Settings / Configuration pentru add-on:
+
+- `device_name` este numele de bază al receiverului de grup. Valoarea `Group`
+  va apărea în YouTube/YTM ca `MP Group`.
+- `individual_friendly_names` este lista numelor custom pentru receiverele
+  individuale. Fiecare rând conține entitatea Home Assistant și numele dorit,
+  fără prefix.
+
+Exemplu:
+
+```yaml
+device_name: "Grup"
+individual_friendly_names:
+  - entity_id: "media_player.aqara_m1s_zigbee_router_192_168_0_221_media_player"
+    friendly_name: "Balcon"
+  - entity_id: "media_player.aqara_m1s_zigbee_router_192_168_0_222_media_player"
+    friendly_name: "Dormitor"
+```
+
+Telefonul va afișa `MP Grup`, `MP Balcon` și `MP Dormitor`. Prefixul `MP` este
+fix și este adăugat automat. După modificarea setărilor este suficientă
+repornirea add-on-ului deja construit cu versiunea 1.0.14.
+
+Setarea schimbă exclusiv etichetele DIAL. Nu schimbă PLAY, STOP, Pause, Next,
+fluxul PCM, sincronizarea, volumul sau apartenența la grup.
+
 ## Mute individual — versiunea 1.0.12
 
 Starea mute a unui membru se setează din tile-ul media playerului individual din Home Assistant. Add-on-ul nu apelează serviciul de mute din comenzile Cast. Telefonul poate modifica nivelul volumului cu pas de 1%, iar valoarea mute afișată expeditorului este recitită din Home Assistant după modificare.
@@ -82,7 +110,8 @@ With `auto_remove_individual_from_group: true`, an M1S selected directly can be 
 ## Options
 
 - `target_entity`: group media player entity.
-- `device_name`: group receiver name shown to YouTube/YTM.
+- `device_name`: base group receiver name; the fixed `MP` prefix is added automatically.
+- `individual_friendly_names`: optional entity-to-name list for individual receivers; the fixed `MP` prefix is added automatically.
 - `audio_port`: continuous audio HTTP port.
 - `dial_port`: first DIAL port.
 - `stream_host`: blank uses automatic LAN IPv4 detection.

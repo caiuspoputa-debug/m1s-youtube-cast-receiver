@@ -6,6 +6,11 @@ import { spawn } from 'node:child_process';
 import YouTubeCastReceiver, { Constants, Player, DefaultPlaylistRequestHandler } from 'yt-cast-receiver';
 
 import { createQueueHandler } from './queue-handler.mjs';
+import {
+  castFriendlyName,
+  friendlyNameOverride,
+  parseFriendlyNameOverrides
+} from './friendly-names.mjs';
 const SenderQueueHandler = createQueueHandler(DefaultPlaylistRequestHandler, Constants.AUTOPLAY_MODES.ENABLED);
 
 const OPTIONS_PATH = '/data/options.json';
@@ -15,7 +20,8 @@ function readOptions() {
   const raw = JSON.parse(fs.readFileSync(OPTIONS_PATH, 'utf8'));
   return {
     targetEntity: String(raw.target_entity || 'media_player.m1s_media_group'),
-    deviceName: String(raw.device_name || 'Aqara M1S Group'),
+    deviceName: castFriendlyName(raw.device_name || 'Group', 'Group'),
+    individualFriendlyNames: parseFriendlyNameOverrides(raw.individual_friendly_names),
     audioPort: Number(raw.audio_port || 8098),
     dialPort: Number(raw.dial_port || 8099),
     streamHost: String(raw.stream_host || '').trim(),
@@ -121,6 +127,10 @@ function titleCase(value) {
 
 function receiverNameFromState(state) {
   const attrs = state?.attributes || {};
+  const entityId = String(state?.entity_id || '');
+  const configuredName = friendlyNameOverride(cfg.individualFriendlyNames, entityId);
+  if (configuredName) return castFriendlyName(configuredName, entityId);
+
   let value = String(attrs.friendly_name || '');
   value = value
     .replace(/aqara\s*m1s\s*zigbee\s*router/ig, ' ')
@@ -138,8 +148,8 @@ function receiverNameFromState(state) {
       .replace(/^_+|_+$/g, '');
   }
 
-  const pretty = titleCase(value) || String(state?.entity_id || 'M1S');
-  return /^m1s\b/i.test(pretty) ? pretty : `M1S ${pretty}`;
+  const pretty = titleCase(value) || entityId || 'Receiver';
+  return castFriendlyName(pretty, entityId);
 }
 
 const INCLUDE_SWITCH_SUFFIX = '_include_in_m1s_media_group';

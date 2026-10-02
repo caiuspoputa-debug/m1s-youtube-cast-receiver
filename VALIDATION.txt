@@ -1,3 +1,15 @@
+1.0.14: added add-on settings for custom group and individual Cast friendly
+names with a code-enforced MP prefix. The focused naming tests and the complete
+existing YouTube/YTM playback, transition, navigation, metadata, volume and mute
+suite pass. config.yaml parses successfully with the new nested list schema.
+The complete index.mjs tail beginning at class JsonDataStore is byte-identical
+to 1.0.13 (SHA-256:
+9CEE5B888870FB66491F3B514CF714972A6C10FF55CCF63DEB7F2F0D3E0483C0), proving
+that playback, continuous PCM, queue, synchronization and receiver startup code
+were not modified. Persistent DIAL identity/reconnection state is retained and
+no additional SSDP announcement loop was introduced. No physical phone/HA test
+or Docker image build was available.
+
 1.0.12: added a focused service-boundary test proving that Cast volume sends only volume_set, never volume_mute, and that the player keeps the per-member mute value read from Home Assistant. The complete existing YouTube/YTM, transition, navigation, volume-step and metadata suite also passes. Integration remains v0.20.8. No physical phone/hub test was available.
 
 1.0.11: clean postinstall against yt-cast-receiver 2.1.0 passed twice; all existing tests plus the four-second, exact-session HA metadata contract passed. YouTube/YTM playback paths and PCM code are unchanged from 1.0.10. Requires integration v0.20.8. No Docker engine or physical phone/hub test was available.

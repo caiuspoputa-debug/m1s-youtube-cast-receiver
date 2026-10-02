@@ -1,3 +1,17 @@
+## 1.0.14 — Nume Cast custom cu prefix MP fix
+
+În setările add-on-ului, `device_name` stabilește numele de bază al grupului,
+iar `individual_friendly_names` permite asocierea fiecărei entități
+`media_player` cu un nume custom. Se introduce numai numele, de exemplu
+`Living`; add-on-ul îl publică în YouTube și YouTube Music ca `MP Living`.
+Prefixul `MP` este adăugat automat și nu este dublat dacă a fost introdus deja.
+
+Dacă o entitate nu are nume custom, rămâne activ fallback-ul bazat pe
+`friendly_name` din Home Assistant, tot cu prefixul `MP`. Identitatea DIAL și
+contextul de reconectare rămân persistente. Nu s-a adăugat un ciclu agresiv de
+anunțuri SSDP. PLAY, fluxul PCM continuu, sincronizarea cu telefonul, coada,
+volumul și restaurarea grupului sunt identice cu 1.0.13.
+
 ## 1.0.13 — Icon Home Assistant Apps
 
 Adaugă icon pentru add-on, afișat în Apps / Add-ons din Home Assistant, fără schimbări de funcționare pentru receiver. Structura și comportamentul runtime rămân identice cu 1.0.12.

@@ -26,6 +26,7 @@ COPY patch-volume.mjs /app/
 RUN npm install --omit=dev --no-audit --no-fund
 COPY index.mjs /app/index.mjs
 COPY queue-handler.mjs /app/queue-handler.mjs
+COPY friendly-names.mjs /app/friendly-names.mjs
 COPY run.sh /run.sh
 RUN chmod a+x /run.sh
 
