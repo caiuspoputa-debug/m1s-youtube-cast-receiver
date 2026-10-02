@@ -1,3 +1,22 @@
+## 1.0.18 — Corecție încărcare listă huburi
+
+Corectează scriptul paginii `M1S Cast Names`, care se oprea înainte să solicite
+lista receiverelor și lăsa panoul gol. Construirea adresei API nu mai folosește
+expresia regulată afectată de escaparea HTML. Testele compilează acum chiar
+scriptul livrat browserului.
+
+Rămân active corecțiile de rută și port din 1.0.17/1.0.16. Traseul audio și
+sincronizarea nu sunt modificate.
+
+## 1.0.17 — Corecție adresă Home Assistant Ingress
+
+Corectează adresa `//settings` generată de Home Assistant în 1.0.16.
+`ingress_entry` este acum `settings`, fără slash inițial. Serverul acceptă și
+normalizează defensiv ruta rădăcină, `/settings` și slash-urile duplicate.
+
+Portul separat `18199` rămâne neschimbat. PLAY, fluxul PCM, sincronizarea,
+coada, volumul și comenzile YouTube/YTM nu sunt modificate.
+
 ## 1.0.16 — Corecție port pentru pagina de nume
 
 Corectează oprirea add-on-ului din 1.0.15. Pagina `M1S Cast Names` folosea

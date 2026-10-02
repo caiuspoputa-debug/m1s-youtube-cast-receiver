@@ -1,3 +1,14 @@
+1.0.18: fixed the browser-side syntax error that left the Cast-name receiver
+panel empty. The test suite now extracts and compiles the actual script served
+inside the HTML page, then verifies both page and API routes. The Ingress path,
+port separation and audio/Cast path remain unchanged.
+
+1.0.17: fixed the Home Assistant Ingress URL generated as //settings by using
+the entry name without a leading slash. The settings server also normalizes
+duplicate slashes and accepts root/settings page and API routes. Focused tests
+cover all accepted paths. Port 18199 and the complete audio/Cast path remain
+unchanged from 1.0.16.
+
 1.0.16: fixed the confirmed v1.0.15 startup failure caused by the Cast-name
 Ingress server and the first individual DIAL receiver both binding port 8100.
 Ingress now uses port 18199. A dedicated layout test validates that this port

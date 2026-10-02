@@ -1,3 +1,17 @@
+## 1.0.18 — Corecție listă goală în pagina de nume
+
+Corectează eroarea JavaScript care împiedica pagina `M1S Cast Names` să încarce
+receiverele. Testarea include acum compilarea scriptului exact servit în HTML.
+Ruta Ingress, portul separat și întregul traseu audio rămân neschimbate.
+
+## 1.0.17 — Corecție URL Ingress
+
+Elimină slash-ul inițial din `ingress_entry`, astfel încât Home Assistant să
+construiască `/settings`, nu `//settings`. Serverul normalizează suplimentar
+slash-urile duplicate și acceptă atât ruta rădăcină, cât și `/settings`.
+
+Porturile corectate în 1.0.16 și întregul traseu audio rămân neschimbate.
+
 ## 1.0.16 — Corecție critică port Ingress
 
 Mută pagina `M1S Cast Names` de pe portul `8100` pe `18199`. În 1.0.15,

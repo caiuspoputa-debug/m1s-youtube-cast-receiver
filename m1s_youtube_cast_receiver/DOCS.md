@@ -1,4 +1,11 @@
-## Nume Cast custom — versiunea 1.0.16
+## Nume Cast custom — versiunea 1.0.18
+
+Folosește versiunea 1.0.18. Aceasta corectează scriptul browserului care lăsa
+lista huburilor goală în versiunile anterioare ale paginii de nume.
+
+Folosește versiunea 1.0.17. Aceasta corectează URL-ul Home Assistant Ingress
+prin definirea intrării `settings` fără slash inițial și acceptă defensiv atât
+ruta rădăcină, cât și `/settings`.
 
 Versiunea 1.0.16 trebuie folosită în locul versiunii 1.0.15. Aceasta mută
 pagina de nume de pe portul `8100`, care se suprapunea cu primul receiver

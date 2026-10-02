@@ -16,6 +16,7 @@ const ingressPort = scalar('ingress_port');
 const maxReceivers = scalar('max_receivers');
 const lastDialPort = dialPort + maxReceivers - 1;
 
+assert.match(config, /^ingress_entry:\s*settings\s*$/m, 'Ingress entry must not start with a slash');
 assert.notEqual(ingressPort, audioPort, 'Ingress must not occupy the audio bridge port');
 assert.ok(
   ingressPort < dialPort || ingressPort > lastDialPort,

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import vm from 'node:vm';
 
 import { createFriendlyNameSettingsServer } from '../friendly-name-settings.mjs';
 import { readFriendlyNameEntries } from '../friendly-name-store.mjs';
@@ -41,12 +42,67 @@ try {
 
   const page = await fetch(`${base}/settings`, { headers: ingressHeaders });
   assert.equal(page.status, 200);
-  assert.match(await page.text(), /Prefixul MP este fix/);
+  const pageHtml = await page.text();
+  assert.match(pageHtml, /Prefixul MP este fix/);
+  const pageScript = pageHtml.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+  assert.ok(pageScript, 'Settings page must contain its client script');
+  assert.doesNotThrow(() => new vm.Script(pageScript), 'Settings page client script must compile');
+
+  class FakeElement {
+    constructor() {
+      this.children = [];
+      this.classList = { add() {}, remove() {} };
+      this.dataset = {};
+      this.textContent = '';
+      this.value = '';
+    }
+    append(...children) { this.children.push(...children); }
+    replaceChildren(...children) { this.children = [...children]; }
+    addEventListener() {}
+    setAttribute() {}
+  }
+  const pageElements = {
+    names: new FakeElement(),
+    status: new FakeElement(),
+    save: new FakeElement()
+  };
+  const browserContext = {
+    window: { location: { pathname: '/api/hassio_ingress/test-token/settings' } },
+    document: {
+      getElementById: (id) => pageElements[id],
+      createElement: () => new FakeElement()
+    },
+    fetch: async (endpoint) => {
+      assert.equal(endpoint, '/api/hassio_ingress/test-token/settings/api/names');
+      return {
+        ok: true,
+        json: async () => ({
+          items: [
+            { entity_id: 'media_player.m1s_media_group', kind: 'group', friendly_name: 'Group', current_cast_name: 'MP Group' },
+            { entity_id: 'media_player.router_221', kind: 'individual', friendly_name: 'Balcon', current_cast_name: 'MP Balcon' }
+          ]
+        })
+      };
+    }
+  };
+  vm.runInNewContext(pageScript, browserContext);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(pageElements.names.children.length, 2, 'Client script must render discovered receivers');
+  assert.equal(pageElements.status.textContent, '2 receivere detectate');
+
+  const duplicateSlashPage = await fetch(`${base}//settings`, { headers: ingressHeaders });
+  assert.equal(duplicateSlashPage.status, 200);
+
+  const rootPage = await fetch(`${base}/`, { headers: ingressHeaders });
+  assert.equal(rootPage.status, 200);
 
   const initial = await fetch(`${base}/settings/api/names`, { headers: ingressHeaders });
   assert.equal(initial.status, 200);
   const initialPayload = await initial.json();
   assert.deepEqual(initialPayload.items.map((item) => item.friendly_name), ['Group', 'Balcon']);
+
+  const rootApi = await fetch(`${base}/api/names`, { headers: ingressHeaders });
+  assert.equal(rootApi.status, 200);
 
   const saved = await fetch(`${base}/settings/api/names`, {
     method: 'POST',

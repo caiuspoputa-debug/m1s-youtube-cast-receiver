@@ -54,7 +54,8 @@ const SETTINGS_PAGE = `<!doctype html>
     const root = document.getElementById('names');
     const status = document.getElementById('status');
     const save = document.getElementById('save');
-    const basePath = window.location.pathname.replace(/\/?$/, '/');
+    const currentPath = window.location.pathname;
+    const basePath = currentPath.endsWith('/') ? currentPath : currentPath + '/';
     const endpoint = basePath + 'api/names';
     let items = [];
 
@@ -183,9 +184,11 @@ export function createFriendlyNameSettingsServer({
   logger = () => {}
 }) {
   return http.createServer(async (req, res) => {
-    const parsed = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
-    const isPage = parsed.pathname === '/settings' || parsed.pathname === '/settings/';
-    const isApi = parsed.pathname === '/settings/api/names';
+    const rawUrl = String(req.url || '/').replace(/^\/{2,}/, '/');
+    const parsed = new URL(rawUrl, `http://${req.headers.host || 'localhost'}`);
+    const route = parsed.pathname.replace(/\/{2,}/g, '/');
+    const isPage = route === '/' || route === '/settings' || route === '/settings/';
+    const isApi = route === '/api/names' || route === '/settings/api/names';
 
     if (!isPage && !isApi) {
       res.writeHead(404);

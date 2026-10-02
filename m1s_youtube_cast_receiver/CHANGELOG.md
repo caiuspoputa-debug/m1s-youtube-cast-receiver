@@ -1,3 +1,20 @@
+## 1.0.18 — Cast-name page client-script fix
+
+- Replace the path-building regular expression whose escape was consumed by
+  the server-side template literal, leaving invalid JavaScript in the browser.
+- Add a test that extracts and compiles the actual client script served in the
+  HTML page, in addition to the existing page and API route tests.
+- Keep the 1.0.17 Ingress path and 1.0.16 port fixes. Audio/Cast behavior is
+  unchanged.
+
+## 1.0.17 — Home Assistant Ingress path fix
+
+- Change `ingress_entry` from `/settings` to `settings`, preventing Home
+  Assistant from generating a `//settings` URL.
+- Normalize duplicate slashes and accept both root and `/settings` routes in
+  the settings server, including their API paths.
+- Keep the 1.0.16 port separation and leave all audio/Cast behavior unchanged.
+
 ## 1.0.16 — Ingress/DIAL port collision fix
 
 - Move the Cast-name Ingress server from port 8100 to 18199. Port 8100 is the
