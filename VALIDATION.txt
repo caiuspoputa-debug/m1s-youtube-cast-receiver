@@ -1,19 +1,18 @@
-1.0.22 validation
+1.0.23 validation
 
-npm test: all tests passed. New automatic LAN selection covers original eno1,
-another eth0 host/IP, changed IP on restart, wlan0, internal/VPN exclusion,
-ambiguous/missing network rejection. Real installed peer-ssdp dependency is
-executed with simulated host interfaces and verifies filtered socket creation
-and interface rescans. Existing playback, transitions, navigation, YTM, volume,
-metadata and discovery announcement regression tests pass.
+npm test: passed, including actual receiverNameFromState executed against HA
+friendly_name and entity-id fallback fixtures, Romanian diacritics/NFC,
+IPv4 removal and preservation of custom Cast names. All existing playback,
+transition, YTM, volume, metadata, SSDP and automatic LAN tests passed.
 node --check index.mjs: passed.
 
-Scope: new discovery-network.mjs, import/startup detection and DIAL binding
-options in index.mjs, Docker COPY, tests, version/docs. Audio stream host
-selection and playback/synchronization code are unchanged. No persisted network
-option or migration required. Detection runs at each add-on process start;
-network changes while running require restarting the add-on.
-No physical LAN test or Docker build performed here.
+Scope: automatic display-name formatter and its call site only, tests,
+version and docs. Custom saved names retain priority. ASCII entity IDs do not
+provide accents that are absent from the source. IDs and persistent keys are
+not rewritten. Existing name-based sorting can change DIAL port assignment
+order as when names are edited in earlier releases.
+Playback, PCM, synchronization and network discovery logic are unchanged.
+No physical phone/hub test or Docker image build performed here.
 
-Installation: replace sources, rebuild/reinstall add-on image, confirm 1.0.22.
-Inspect DIAL/SSDP LAN startup log. Preserve options/data and Aqara integration.
+Replace sources and rebuild/reinstall the add-on image, then confirm 1.0.23.
+Preserve options/data. No Aqara integration update needed.

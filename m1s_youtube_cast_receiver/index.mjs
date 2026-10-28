@@ -9,6 +9,7 @@ import { createQueueHandler } from './queue-handler.mjs';
 import { detectDiscoveryNetwork } from './discovery-network.mjs';
 import {
   castFriendlyName,
+  detectedReceiverName,
   friendlyNameOverride,
   parseFriendlyNameOverrides
 } from './friendly-names.mjs';
@@ -135,14 +136,6 @@ function safeKey(value) {
   return key.slice(0, 80) || 'receiver';
 }
 
-function titleCase(value) {
-  return String(value || '')
-    .replace(/[_-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/\b\p{L}/gu, (m) => m.toUpperCase());
-}
-
 function receiverNameFromState(state) {
   const attrs = state?.attributes || {};
   const entityId = String(state?.entity_id || '');
@@ -166,8 +159,8 @@ function receiverNameFromState(state) {
       .replace(/^_+|_+$/g, '');
   }
 
-  const pretty = titleCase(value) || entityId || 'Receiver';
-  return castFriendlyName(pretty, entityId);
+  const pretty = detectedReceiverName(value) || 'Receiver';
+  return castFriendlyName(pretty);
 }
 
 const INCLUDE_SWITCH_SUFFIX = '_include_in_m1s_media_group';

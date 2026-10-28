@@ -1,3 +1,18 @@
+## 1.0.23 — Diacritice corecte si nume fara IP
+
+Numele generate automat din Home Assistant pastreaza diacriticele romanesti.
+Capitalizarea foloseste limite Unicode, astfel incat bucatarie cu diacritice
+nu mai produce litere majuscule in interiorul cuvantului. Sunt eliminate
+adresele IPv4 valide scrise cu puncte, underscore, spatii sau cratime.
+Exemplu: bucătărie 192.168.0.210 -> MP Bucătărie.
+
+Numele personalizate din M1S Cast Names raman prioritare si nu sunt rescrise.
+Daca sursa este doar un entity_id fara diacritice, acestea nu sunt inventate:
+bucatarie_192_168_0_210 -> MP Bucatarie.
+Descoperirea LAN automata din 1.0.22, redarea si sincronizarea sunt pastrate.
+Inlocuieste sursele si reconstruieste/reinstaleaza imaginea. Confirma 1.0.23.
+Nu este necesara actualizarea integrarii Aqara.
+
 ## 1.0.22 — Selectie automata LAN pentru DIAL/SSDP
 
 La fiecare pornire a add-on-ului, interfata si IPv4 pentru descoperire sunt
