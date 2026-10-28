@@ -1,3 +1,33 @@
+## 1.0.28 — Comenzi anulate corect si derulare cu sursa reutilizata
+
+Corecteaza cele doua probleme masurate:
+1. Cand Play/Resume/Seek este inlocuit de o comanda noua, sau intervine Pause/Stop,
+   asteptarea PCM veche este anulata imediat si nu mai expira dupa15secunde.
+   Nu publica PLAYING/STOPPED pentru comanda depasita si nu inchide transportul
+   comenzii noi. Un timeout real al sursei curente ramane raportat ca eroare.
+2. Prima extragere pastreaza temporar informatiile sursei deja selectate.
+   Derularea aceleiasi piese le reutilizeaza prin --load-info-json, pastrand
+   formatul si antetele, fara o noua extragere YouTube. Elimina vechile pozitii
+   section_start/end inainte de noua derulare. Daca sursa esueaza/expira, este
+   invalidata si urmatoarea incercare foloseste extragere proaspata.
+
+Sunt pastrate informatii de sursa, NU un buffer audio nou: maxim8 intrari,
+15minute sau pana inaintea expirarii adresei semnate. Fisierele temporare au
+acces0600 si sunt eliminate la terminarea incercarii. Nu sunt logate URL-uri.
+In log: [TIMING][SOURCE-CACHE] prepared_source=reused/fresh.
+Prima pornire a unei piese noi poate necesita in continuare extragerea normala.
+Masuratorile suplimentare PIPELINE si remedierea din1.0.27 sunt pastrate.
+
+Bufferele, marimea si ritmul chunkurilor PCM, lead-ul transportului si sincronizarea
+nu sunt modificate. Se pastreaza fluxul continuu si avansarea naturala prin append.
+Testele includ pastrarea tuturor byte-urilor la finalul piesei si la avansarea
+naturala. Raportarea utilizatorului despre un final audibil taiat nu este inca
+confirmata ca rezolvata; nu se aplica o compensare de durata sau buffer.
+
+Publica sursele si reconstruieste/actualizeaza imaginea. Confirma1.0.28.
+Integrarea Aqara, optiunile si datele persistente raman aceleasi.
+Testele locale si reale yt-dlp/ffmpeg au trecut; validarea pe hub ramane necesara.
+
 ## 1.0.27 — Reparatie diagnostic care bloca descarcarea
 
 Corecteaza regresia confirmata in logul utilizatorului pentru 1.0.26:

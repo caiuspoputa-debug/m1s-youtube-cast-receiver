@@ -8,6 +8,7 @@ import YouTubeCastReceiver, { Constants, Player, DefaultPlaylistRequestHandler }
 import { createQueueHandler } from './queue-handler.mjs';
 import { detectDiscoveryNetwork } from './discovery-network.mjs';
 import { createSourceTimingFile, observeSourceTiming } from './source-timing.mjs';
+import { PreparedSourceCache } from './prepared-source-cache.mjs';
 import {
   castFriendlyName,
   detectedReceiverName,
@@ -25,6 +26,7 @@ const SenderQueueHandler = createQueueHandler(DefaultPlaylistRequestHandler, Con
 const OPTIONS_PATH = '/data/options.json';
 const YTDLP = '/opt/yt-dlp/bin/yt-dlp';
 const FRIENDLY_NAME_SETTINGS_PORT = 18199;
+const preparedSources = new PreparedSourceCache();
 
 function readOptions() {
   const raw = JSON.parse(fs.readFileSync(OPTIONS_PATH, 'utf8'));
@@ -529,6 +531,17 @@ class ContinuousAudioSession {
     this._wakeSpace();
   }
 
+  _cancelPendingTrackStarts() {
+    for (const deferred of this.trackOutputStarts.values()) {
+      if (!deferred.started && !deferred.cancelled) {
+        // Resolve first: a source can be replaced before its caller starts
+        // waiting. Rejecting here would create an unhandled promise rejection.
+        deferred.cancelled = true;
+        deferred.resolve(null);
+      }
+    }
+  }
+
   _killSourceChildren() {
     for (const child of this.sourceChildren) {
       if (child && !child.killed) {
@@ -632,7 +645,7 @@ class ContinuousAudioSession {
       if (item) {
         if (this.firstPcmOutputAt === null) this.firstPcmOutputAt = outputAt;
         const deferred = this.trackOutputStarts.get(item.generation);
-        if (deferred && !deferred.started) {
+        if (deferred && !deferred.started && !deferred.cancelled) {
           log('info', `[TIMING][PCM] [${this.definition.name}] session=${this.serial} track=${item.generation} first_output_at=${outputAt}`);
           deferred.started = true;
           deferred.resolve(outputAt);
@@ -654,12 +667,18 @@ class ContinuousAudioSession {
     if (!deferred) throw new Error(`unknown continuous track generation ${generation}`);
     let timer;
     try {
-      return await Promise.race([
+      const outputAt = await Promise.race([
         deferred.promise,
         new Promise((_, reject) => {
           timer = setTimeout(() => reject(new Error('continuous track PCM start timeout')), timeoutMs);
         })
       ]);
+      if (deferred.cancelled) {
+        const error = new Error('continuous track source request cancelled');
+        error.code = 'M1S_SOURCE_CANCELLED';
+        throw error;
+      }
+      return outputAt;
     } finally {
       if (timer) clearTimeout(timer);
     }
@@ -686,6 +705,7 @@ class ContinuousAudioSession {
     const id = safeVideoId(videoId);
     if (!id) throw new Error(`invalid video id: ${videoId}`);
 
+    if (!append) this._cancelPendingTrackStarts();
     this.paused = false;
     this.trackGeneration += 1;
     const generation = this.trackGeneration;
@@ -760,14 +780,17 @@ class ContinuousAudioSession {
   }
 
   _spawnTrackProcesses(videoId, position) {
+    const sourcePlan = preparedSources.plan(videoId, position);
     const diagnosticFile = createSourceTimingFile(log);
     const ytdlpArgs = [
       '--no-playlist', '--quiet', '--no-warnings', '--js-runtimes', 'node',
       ...diagnosticFile.args,
+      ...sourcePlan.args,
       '-f', 'bestaudio[ext=webm]/bestaudio', '-o', '-'
     ];
     if (position > 0.5) ytdlpArgs.push('--download-sections', `*${position}-`);
-    ytdlpArgs.push(`https://www.youtube.com/watch?v=${videoId}`);
+    ytdlpArgs.push(...sourcePlan.sourceArgs);
+    log('info', `[TIMING][SOURCE-CACHE] [${this.definition.name}] video=${videoId} position=${position}s prepared_source=${sourcePlan.reused ? 'reused' : 'fresh'}`);
 
     const ytdlp = spawn(YTDLP, ytdlpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
     const ffmpeg = spawn('ffmpeg', [
@@ -780,14 +803,16 @@ class ContinuousAudioSession {
     this.sourceChildren.add(ytdlp);
     this.sourceChildren.add(ffmpeg);
     ytdlp.stdout.pipe(ffmpeg.stdin);
-    return { ytdlp, ffmpeg, diagnosticFile };
+    ytdlp.stdout.once('data', () => sourcePlan.capture());
+    ytdlp.once('close', () => { sourcePlan.capture(); sourcePlan.cleanup(); });
+    return { ytdlp, ffmpeg, diagnosticFile, sourcePlan };
   }
 
   async _decodeTrackAttempt(videoId, position, generation) {
     const diagnosticSourceAt = Date.now();
     let diagnosticFirstDecoded = false;
     log('info', `[TIMING][SOURCE] [${this.definition.name}] session=${this.serial} track=${generation} video=${videoId} position=${position}s source_start_at=${diagnosticSourceAt}`);
-    const { ytdlp, ffmpeg, diagnosticFile } = this._spawnTrackProcesses(videoId, position);
+    const { ytdlp, ffmpeg, diagnosticFile, sourcePlan } = this._spawnTrackProcesses(videoId, position);
     const diagnosticPipeline = observeSourceTiming({ytdlp, ffmpeg, diagnosticFile, startedAt: diagnosticSourceAt,
       label: `[${this.definition.name}] session=${this.serial} track=${generation} attempt_at=${diagnosticSourceAt}`, log});
     let ytdlpErr = '';
@@ -842,6 +867,10 @@ class ContinuousAudioSession {
 
       if (!this.active || generation !== this.currentTrackGeneration || this.paused) return 'cancelled';
       if ((ytCode === 0 || ytCode === null) && (ffCode === 0 || ffCode === null)) return 'eof';
+      sourcePlan.invalidate();
+      if (sourcePlan.reused) {
+        log('info', `[TIMING][SOURCE-CACHE] [${this.definition.name}] video=${videoId} cached_source_failed=true next_attempt=fresh_extraction`);
+      }
       log('warn', `[${this.definition.name}] Source process ended unexpectedly.`,
         `yt-dlp=${ytCode} ffmpeg=${ffCode} ${(ytdlpErr || ffmpegErr).trim().slice(-700)}`);
       return 'failed';
@@ -856,6 +885,7 @@ class ContinuousAudioSession {
   pause() {
     if (!this.active) return;
     this.paused = true;
+    this._cancelPendingTrackStarts();
     this.trackGeneration += 1;
     this.currentTrackGeneration = this.trackGeneration;
     this._killSourceChildren();
@@ -867,6 +897,7 @@ class ContinuousAudioSession {
     if (!this.active) return;
     this.active = false;
     this.paused = false;
+    this._cancelPendingTrackStarts();
     this.trackGeneration += 1;
     this.currentTrackGeneration = this.trackGeneration;
     this._killSourceChildren();
@@ -1401,6 +1432,9 @@ class M1SPlayer extends Player {
       log('info', `[TIMING][START] [${this.definition.name}] session=${serial} completed_ms=${Date.now() - diagnosticStartAt} transport_lead_ms=${session.transportLeadMs} audible_time_is_transport_estimate=true`);
       return true;
     } catch (error) {
+      // A newer seek/track or an explicit pause/stop owns the session now.
+      // Do not close its transport or publish a failure for the old request.
+      if (error?.code === 'M1S_SOURCE_CANCELLED') throw error;
       log('info', `[TIMING][START] [${this.definition.name}] session=${serial} failed_after_ms=${Date.now() - diagnosticStartAt} error=${error?.message || String(error)}`);
       log('error', `[${this.definition.name}] Continuous HA session start failed.`, error?.message || String(error));
       await session.stop();
@@ -1506,6 +1540,11 @@ class M1SPlayer extends Player {
       && this.status === Constants.PLAYER_STATUSES.PLAYING);
     try {
       return await super.play(video, position, AID);
+    } catch (error) {
+      // Bypass base Player.play's false-result STOPPED notification when the
+      // operation was intentionally superseded rather than failed.
+      if (error?.code === 'M1S_SOURCE_CANCELLED') return false;
+      throw error;
     } finally {
       this.skipNextReplacementStop = false;
     }
@@ -1644,12 +1683,19 @@ class M1SPlayer extends Player {
     if (!this.paused && this.startedAt !== null) return true;
     this.paused = false;
     const generation = ++this.playGeneration;
-    const trackGeneration = await this.continuousSession.queueTrack(this.currentVideoId, this.basePosition, { append: false });
-    const outputAt = await this.continuousSession.waitTrackOutputStart(trackGeneration);
-    const audibleAt = outputAt + Math.max(0, Number(this.continuousSession.transportLeadMs) || 0);
+    const session = this.continuousSession;
+    const trackGeneration = await session.queueTrack(this.currentVideoId, this.basePosition, { append: false });
+    let outputAt;
+    try {
+      outputAt = await session.waitTrackOutputStart(trackGeneration);
+    } catch (error) {
+      if (error?.code === 'M1S_SOURCE_CANCELLED') return false;
+      throw error;
+    }
+    const audibleAt = outputAt + Math.max(0, Number(session.transportLeadMs) || 0);
     const waitMs = audibleAt - Date.now();
     if (waitMs > 0) await sleep(waitMs);
-    if (generation !== this.playGeneration) return false;
+    if (generation !== this.playGeneration || this.continuousSession !== session || !session.active || this.paused) return false;
     this.startedAt = audibleAt;
     log('info', `[${this.definition.name}] Resumed inside existing continuous transport.`);
     return true;
@@ -1708,14 +1754,21 @@ class M1SPlayer extends Player {
     this.startedAt = null;
     if (this.paused) return true;
     const generation = ++this.playGeneration;
-    const trackGeneration = await this.continuousSession.queueTrack(this.currentVideoId, this.basePosition, { append: false });
-    log('info', `[TIMING][SEEK] [${this.definition.name}] session=${this.continuousSession.serial} track=${trackGeneration} source_queued_ms=${Date.now() - diagnosticSeekAt}`);
-    const outputAt = await this.continuousSession.waitTrackOutputStart(trackGeneration);
-    log('info', `[TIMING][SEEK] [${this.definition.name}] track=${trackGeneration} first_pcm_ms=${outputAt - diagnosticSeekAt} observed_ms=${Date.now() - diagnosticSeekAt} transport_lead_ms=${this.continuousSession.transportLeadMs}`);
-    const audibleAt = outputAt + Math.max(0, Number(this.continuousSession.transportLeadMs) || 0);
+    const session = this.continuousSession;
+    const trackGeneration = await session.queueTrack(this.currentVideoId, this.basePosition, { append: false });
+    log('info', `[TIMING][SEEK] [${this.definition.name}] session=${session.serial} track=${trackGeneration} source_queued_ms=${Date.now() - diagnosticSeekAt}`);
+    let outputAt;
+    try {
+      outputAt = await session.waitTrackOutputStart(trackGeneration);
+    } catch (error) {
+      if (error?.code === 'M1S_SOURCE_CANCELLED') return false;
+      throw error;
+    }
+    log('info', `[TIMING][SEEK] [${this.definition.name}] track=${trackGeneration} first_pcm_ms=${outputAt - diagnosticSeekAt} observed_ms=${Date.now() - diagnosticSeekAt} transport_lead_ms=${session.transportLeadMs}`);
+    const audibleAt = outputAt + Math.max(0, Number(session.transportLeadMs) || 0);
     const waitMs = audibleAt - Date.now();
     if (waitMs > 0) await sleep(waitMs);
-    if (generation !== this.playGeneration) return false;
+    if (generation !== this.playGeneration || this.continuousSession !== session || !session.active || this.paused) return false;
     this.startedAt = audibleAt;
     log('info', `[${this.definition.name}] Seek completed inside continuous transport at ${this.basePosition.toFixed(1)}s.`);
     log('info', `[TIMING][SEEK] [${this.definition.name}] track=${trackGeneration} completed_ms=${Date.now() - diagnosticSeekAt} audible_time_is_transport_estimate=true`);

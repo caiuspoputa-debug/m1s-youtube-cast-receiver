@@ -1,37 +1,38 @@
-1.0.27 validation
+1.0.28 validation
 
-Confirmed user failure: yt-dlp exits1, ffmpeg183, Errno6 No such device or address
-/dev/stderr, repeated three times then continuous PCM timeout. The diagnostic
-added in 1.0.26 caused the failure.
-Fix: precreated regular temporary file instead of reopening a subprocess fd;
-literal M1S_TIMING_BEFORE_DOWNLOAD! instead of a metadata-field-shaped template.
-Node pipe streams cannot be reopened via fd paths; yt-dlp print-to-file opens
-its destination via Python open(...,'a'). Word-only/colon marker templates are
-interpreted as fields by actual yt-dlp and produce NA, so ! is required here.
+npm test: full final suite passed, including new cancelled-source,
+prepared-source-cache and natural-tail tests. node --check index.mjs passed.
+Cancellation tests run actual production session/pinnedPlayer paths:
+superseded/unwatched starts, pause/stop, concurrent resume+seek, replacements,
+no false STOPPED/PLAYING/transport teardown, preserved real current-source timeout.
+Natural append does not cancel old pending starts or discard predecessor PCM.
 
-Validation:
-- npm test: all passed, including regression suite and regular-file polling,
-  partial markers, one-time measurements, cleanup, unknown stages and unchanged
-  audio data through the observed pipe.
-- Real yt-dlp 2026.10.26 CLI tested with an ffmpeg-generated Opus/webm fixture
-  served only on localhost. Baseline vs corrected marker both exit0, stderr
-  empty, all 2817 stdout bytes equal original fixture. Literal marker confirmed.
-  Negative controls word-only and colon markers produce NA, verifying the fix.
-- Actual production helper integration passed: Node spawn pipes actual yt-dlp
-  into the original ffmpeg decoder argv. Both exited0; 2817 audio bytes
-  unchanged, 25600 PCM bytes decoded, all seven timing stages logged, marker
-  file and directory removed on close. Local-only fixture, no YouTube requests.
-- node --check index.mjs: passed.
-- Excluding the additional diagnostic wiring, index.mjs equals functional
-  1.0.25. Existing downloader format/output/section arguments, ffmpeg audio args,
-  PCM loop, waits, buffers and synchronization code are unchanged.
+Prepared source tests: video identity, protected unique files, partialJSON,
+unchanged URLs/formats/headers, removal of old section offsets, absolute seek,
+TTL/LRU/signed expiry, identity-safe invalidation and filesystem failure fallback.
+Real yt-dlp2026.10.26 + realffmpeg localhostOpus fixture test passed:
+- Fresh seek2 captured actual full before_dl infoJSON.
+- Reused seek1 succeeds with all extractors disabled, proving extraction bypass.
+- Required custom HTTP header retained.
+- Actual before_dl.section_start=1, not old2+new1.
+- Cachedseek1 PCM exactly matches independent freshseek1 PCM byte-for-byte.
+- Both processes exit0 with no errors. No liveYouTube/hub speed claim made.
+Existing section-seek preroll semantics are unchanged, not newly corrected.
 
-No live YouTube/phone/hub test or Linux Docker image build performed here.
-Diagnostic marker uses a regular file and polling approx50ms; filesystem/event
-scheduling can delay observation further. download_to_first_byte includes
-network and yt-dlp internal processing (including its internal ffmpeg on seeks),
-not pure network latency. Physical speaker output is not measured.
+Natural-tail test exercises real decodeassembly/backpressure/finalpartialperiod,
+sourceEOF, append and outputloop: all407680 expectedbytes retained in order,
+no source children killed. Supplied naturalboundary has clean decoderEOF and
+append; it does not establish physical tail loss. No speculative tail fix applied.
 
-Publish/update sources and rebuild image, confirm1.0.27. No downgrade needed.
-Preserve options/data and integration. Existing TIMING logs and new PIPELINE logs
-remain available for a playback+seek test after upgrade.
+Compared to1.0.27, exact invariants preserved: PCM constants/queuesizes, pacing,
+transportlead calculation, waitForTransportStarted, naturalEOF handling and volume.
+Original ffmpeg decoder arguments, download-sections and output-format choice
+remain. Changes are cancellation lifecycle and reuse of preparedsource metadata.
+Cachedfailure consumes existing retry path; no new delay/timeout/buffer is added.
+Cache is bounded8entries/15minutes or signed URL expiry minus30sec; no persistent
+cache, no new audio buffer, no signedURL/token output. Process files cleaned.
+No physical phone/hub test or Docker image build performed here.
+
+Publishsources, rebuild/updateimage, confirm1.0.28. Preserve integration/options.
+Logs show prepared_source=reused on warmseeks; a genuinely failedcurrent source
+can still timeout. Audible end-of-track truncation remains unconfirmed/unresolved.
