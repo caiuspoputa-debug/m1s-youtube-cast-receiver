@@ -1,20 +1,23 @@
-1.0.24 validation
+1.0.25 validation
 
-npm run postinstall: passed, including idempotent fractional volume parser patch.
-npm test: all passed. Added actual pinned Player tests for fine steps,
-both threshold directions, clamps, unchanged requests, NaN, preserved mute,
-30-command bursts up/down, absolute non-phone volume and initial HA precision.
-Installed YouTubeApp uses parseFloat only for payload.volume.
-Existing playback, transitions, queue, YTM, metadata, names and discovery tests pass.
+npm test: all passed, including emission of SEEK first_pcm/completed measurements
+through the existing actual pinned Player transition tests. Existing playback,
+continuous transport, YTM, metadata, fine volume, naming and LAN tests pass.
 node --check index.mjs: passed.
+Comparison against 1.0.24: after removing added diagnostic logs/local timing
+variables and the first-decoded logging guard, all nonblank code lines match.
+No added awaits, sleeps, buffering changes or playback control changes.
 
-Runtime scope: setPhoneVolume adaptive step calculation and initial volume precision;
-patch-volume.mjs preserves fractional incoming volume. Other index.mjs code is
-unchanged, verified against 1.0.23 after masking only those two function bodies.
-Playback, synchronization, continuous audio, discovery and naming are unchanged.
-No physical phone/hub test or Docker image build performed here.
-Sender physical buttons apply the scale when they send Cast volume commands.
-The sender UI may round very low fractional percentages. Each request, including
-absolute slider requests, still means one step as in previous releases.
+Logs use existing info logging. They measure internal player stages, not phone
+UI gesture time or physical speaker audio. Startup serial and lead are existing
+transport observations/estimates. PCM first_output_at is the existing output
+loop timestamp; observed_ms records when the awaited result is handled.
+Epoch *_at values are milliseconds and *_ms fields are elapsed milliseconds.
+Stages can overlap (decoding starts before HA play_media completes), so do not
+sum every cumulative stage. Correlate session and track identifiers.
+Logging has normal execution overhead; no per-chunk continuous logging is added.
+No physical device test or Docker build performed here.
 
-Replace sources, rebuild/reinstall image, confirm 1.0.24. Preserve options/data.
+Replace sources and rebuild/reinstall image, confirm 1.0.25.
+Start casting and seek once, then provide the add-on log including [TIMING].
+No packet capture or debug level is required.

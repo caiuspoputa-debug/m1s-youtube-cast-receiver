@@ -10,10 +10,11 @@ const Player = new Function('EventEmitter','uuidv4','AUTOPLAY_MODES','PLAYER_STA
   (EventEmitter,randomUUID,Constants.AUTOPLAY_MODES,Constants.PLAYER_STATUSES,Playlist);
 const logger={debug(){},info(){},warn(){},error(){}};
 const S=Constants.PLAYER_STATUSES;
+const timingLogs=[];
 function load(relative) {
   const source=fs.readFileSync(new URL(relative,import.meta.url),'utf8');
   const code=source.slice(source.indexOf('class M1SPlayer extends Player {'),source.indexOf('\nasync function initializeVolume'));
-  return new Function('Player','Constants','log','sleep',code+'\nreturn M1SPlayer;')(Player,Constants,()=>{},async()=>{});
+  return new Function('Player','Constants','log','sleep',code+'\nreturn M1SPlayer;')(Player,Constants,(...args)=>timingLogs.push(args.join(' ')),async()=>{});
 }
 async function setup(Type) {
   const p=new Type({name:'Test',entityId:'media_player.test'});
@@ -56,6 +57,8 @@ const same=q.continuousSession;const direct=q.seek(60);while(!output[3])await Pr
 assert.equal(q.continuousSession,same);assert.equal(q.basePosition,60);
 await q.pause();const r=q.resume();while(!output[4])await Promise.resolve();output[4](Date.now());await r;
 assert.equal(q.status,S.PLAYING);assert.equal(queued.length,4);
+assert.ok(timingLogs.some(line=>line.includes('[TIMING][SEEK]') && line.includes('first_pcm_ms=')));
+assert.ok(timingLogs.some(line=>line.includes('[TIMING][SEEK]') && line.includes('completed_ms=')));
 const natural=await setup(Fixed);const n=natural.p;
 n.continuousSession.currentTrackGeneration=1;
 n.queue.next=async()=>({id:'next'});

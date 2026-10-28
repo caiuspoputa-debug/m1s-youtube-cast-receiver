@@ -1,3 +1,25 @@
+## 1.0.25 — Masuratori pornire si derulare
+
+Adauga numai diagnostic la nivel info, cu prefix [TIMING].
+PLAY: intrarea in doPlay, pregatirea titlului/metadata, asteptarea restaurarii.
+START: pregatirea individuala/grup, durata apelului HA play_media, primul PCM,
+confirmarea serialului transportului, lead si finalizare/eroare.
+SOURCE: pornirea yt-dlp/ffmpeg si timpul pana la primele date decodate.
+HTTP/PCM: conectarea clientului HA si prima iesire PCM pentru fiecare generatie.
+SEEK: pozitia ceruta, verificarea ownership, sursa lansata, primul PCM,
+transport lead si finalizare. In pauza se noteaza paused=true; nu se porneste sursa.
+Campurile *_ms sunt milisecunde; etapele START sunt cumulative de la
+transport_prepare_at. Etapele SEEK sunt cumulative de la received_by_player_at.
+Etichetele session/track permit corelarea sursei cu operatia.
+Received_by_player_at este intrarea in playerul add-on-ului, nu momentul atingerii
+ecranului. Confirmarea audible este derivata din transport; nu masoara fizic boxa.
+
+Nu schimba awaits, timere, timeouturi, buffere, comenzi HA, decodare sau sincronizare.
+Pastreaza volumul fin, numele si descoperirea LAN automata.
+Inlocuieste sursele si reconstruieste/reinstaleaza imaginea. Confirma 1.0.25.
+Pentru test: porneste o piesa pe hub, deruleaza o data, apoi exporta logul
+add-on-ului cu liniile [TIMING] si eventualele erori. Nu necesita debug sau captura.
+
 ## 1.0.24 — Volum fin din YouTube / YouTube Music
 
 Comenzile Cast de volum folosesc aceeasi scara ca butoanele cardului HA:

@@ -538,6 +538,7 @@ class ContinuousAudioSession {
   }
 
   async attachResponse(res) {
+    log('info', `[TIMING][HTTP] [${this.definition.name}] session=${this.serial} client_connected_at=${Date.now()}`);
     if (!this.active) {
       res.writeHead(404, { 'Connection': 'close' });
       res.end('Session ended');
@@ -631,6 +632,7 @@ class ContinuousAudioSession {
         if (this.firstPcmOutputAt === null) this.firstPcmOutputAt = outputAt;
         const deferred = this.trackOutputStarts.get(item.generation);
         if (deferred && !deferred.started) {
+          log('info', `[TIMING][PCM] [${this.definition.name}] session=${this.serial} track=${item.generation} first_output_at=${outputAt}`);
           deferred.started = true;
           deferred.resolve(outputAt);
         }
@@ -779,6 +781,9 @@ class ContinuousAudioSession {
   }
 
   async _decodeTrackAttempt(videoId, position, generation) {
+    const diagnosticSourceAt = Date.now();
+    let diagnosticFirstDecoded = false;
+    log('info', `[TIMING][SOURCE] [${this.definition.name}] session=${this.serial} track=${generation} video=${videoId} position=${position}s source_start_at=${diagnosticSourceAt}`);
     const { ytdlp, ffmpeg } = this._spawnTrackProcesses(videoId, position);
     let ytdlpErr = '';
     let ffmpegErr = '';
@@ -794,6 +799,10 @@ class ContinuousAudioSession {
     let lastFullChunk = null;
     try {
       for await (const data of ffmpeg.stdout) {
+        if (!diagnosticFirstDecoded) {
+          diagnosticFirstDecoded = true;
+          log('info', `[TIMING][SOURCE] [${this.definition.name}] session=${this.serial} track=${generation} first_decoded_ms=${Date.now() - diagnosticSourceAt}`);
+        }
         if (!this.active || generation !== this.currentTrackGeneration || this.paused) return 'cancelled';
         buffer = buffer.length ? Buffer.concat([buffer, data]) : Buffer.from(data);
         while (buffer.length >= PCM_CHUNK_BYTES) {
@@ -1323,10 +1332,15 @@ class M1SPlayer extends Player {
   }
 
   async startContinuousSession(prepared) {
+    const diagnosticStartAt = Date.now();
+    log('info', `[TIMING][START] [${this.definition.name}] video=${prepared.id} position=${prepared.position}s transport_prepare_at=${diagnosticStartAt}`);
     this.captureSessionSenderForStart();
     await this.waitForPendingGroupSenderRestore();
+    log('info', `[TIMING][START] [${this.definition.name}] video=${prepared.id} group_restore_done_ms=${Date.now() - diagnosticStartAt}`);
     await this.ensureIndividualReadyForPlayback();
+    log('info', `[TIMING][START] [${this.definition.name}] video=${prepared.id} individual_ready_ms=${Date.now() - diagnosticStartAt}`);
     if (!(await this.ensureInitialGroupCleanStart())) return false;
+    log('info', `[TIMING][START] [${this.definition.name}] video=${prepared.id} group_ready_ms=${Date.now() - diagnosticStartAt}`);
     if (this.musicSenderActive && (prepared.generation !== this.playGeneration || this.sessionRelinquished)) return false;
 
     const serial = nextStreamSerial();
@@ -1336,6 +1350,7 @@ class M1SPlayer extends Player {
 
     log('info', `[${this.definition.name}] Starting ONE continuous YT/YTM transport.`, `session=${serial}`);
     try {
+      const diagnosticHaAt = Date.now();
       await haService(this.definition.entityId, 'play_media', {
         media_content_id: session.url,
         media_content_type: 'music',
@@ -1347,6 +1362,7 @@ class M1SPlayer extends Player {
           stream_serial: serial
         }
       });
+      log('info', `[TIMING][START] [${this.definition.name}] session=${serial} ha_play_media_ms=${Date.now() - diagnosticHaAt}`);
       if (this.musicSenderActive && (prepared.generation !== this.playGeneration || this.continuousSession !== session
           || this.sessionRelinquished)) {
         await session.stop();
@@ -1357,7 +1373,9 @@ class M1SPlayer extends Player {
       this.startOwnershipMonitor();
 
       const firstPcmAt = await session.waitTrackOutputStart(trackGeneration);
+      log('info', `[TIMING][START] [${this.definition.name}] session=${serial} first_pcm_ms=${firstPcmAt - diagnosticStartAt} observed_ms=${Date.now() - diagnosticStartAt}`);
       const transport = await this.waitForTransportStarted(serial);
+      log('info', `[TIMING][START] [${this.definition.name}] session=${serial} transport_ready_ms=${Date.now() - diagnosticStartAt} exact_serial=${transport.exact}`);
       let transportAt = transport.at;
       if (transport.exact) {
         session.setTransportLeadMs(Math.max(0, transportAt - firstPcmAt));
@@ -1374,8 +1392,10 @@ class M1SPlayer extends Player {
       this.basePosition = prepared.position;
       this.scheduleHomeAssistantMetadata(prepared.id, prepared.generation);
       log('info', `[${this.definition.name}] Continuous YT/YTM session is audible; no more HA Play/Stop at song boundaries.`);
+      log('info', `[TIMING][START] [${this.definition.name}] session=${serial} completed_ms=${Date.now() - diagnosticStartAt} transport_lead_ms=${session.transportLeadMs} audible_time_is_transport_estimate=true`);
       return true;
     } catch (error) {
+      log('info', `[TIMING][START] [${this.definition.name}] session=${serial} failed_after_ms=${Date.now() - diagnosticStartAt} error=${error?.message || String(error)}`);
       log('error', `[${this.definition.name}] Continuous HA session start failed.`, error?.message || String(error));
       await session.stop();
       if (this.continuousSession === session) {
@@ -1501,10 +1521,13 @@ class M1SPlayer extends Player {
   }
 
   async doPlay(video, position) {
+    const diagnosticPlayAt = Date.now();
+    log('info', `[TIMING][PLAY] [${this.definition.name}] video=${video?.id} position=${position}s received_by_player_at=${diagnosticPlayAt}`);
     this.sessionRelinquished = false;
     let prepared;
     try {
       prepared = await this.prepareVideo(video, position);
+      log('info', `[TIMING][PLAY] [${this.definition.name}] video=${video?.id} metadata_prepare_ms=${Date.now() - diagnosticPlayAt}`);
     } catch (error) {
       log('error', `[${this.definition.name}] ${error.message}`);
       return false;
@@ -1516,6 +1539,8 @@ class M1SPlayer extends Player {
     // the Group). Always finish the targeted restore before applying the new
     // Group command.
     await this.waitForPendingGroupSenderRestore();
+
+    log('info', `[TIMING][PLAY] [${this.definition.name}] video=${video?.id} ready_to_dispatch_ms=${Date.now() - diagnosticPlayAt}`);
 
     if (this.continuousSession?.active && this.ownsTarget) {
       return this.switchTrackInsideSession(prepared, { append: this.naturalAdvanceInProgress });
@@ -1665,23 +1690,29 @@ class M1SPlayer extends Player {
   }
 
   async doSeek(position) {
+    const diagnosticSeekAt = Date.now();
+    log('info', `[TIMING][SEEK] [${this.definition.name}] requested_position=${position}s received_by_player_at=${diagnosticSeekAt}`);
     if (!this.currentVideo || !this.continuousSession?.active) return false;
     if (this.sessionRelinquished || !(await this.targetStillOwnedByYoutube())) {
       await this.relinquishToExternalSource('Seek ignored because HA is playing another source');
       return false;
     }
     this.basePosition = Math.max(0, Number(position) || 0);
+    log('info', `[TIMING][SEEK] [${this.definition.name}] ownership_checked_ms=${Date.now() - diagnosticSeekAt} paused=${this.paused}`);
     this.startedAt = null;
     if (this.paused) return true;
     const generation = ++this.playGeneration;
     const trackGeneration = await this.continuousSession.queueTrack(this.currentVideoId, this.basePosition, { append: false });
+    log('info', `[TIMING][SEEK] [${this.definition.name}] session=${this.continuousSession.serial} track=${trackGeneration} source_queued_ms=${Date.now() - diagnosticSeekAt}`);
     const outputAt = await this.continuousSession.waitTrackOutputStart(trackGeneration);
+    log('info', `[TIMING][SEEK] [${this.definition.name}] track=${trackGeneration} first_pcm_ms=${outputAt - diagnosticSeekAt} observed_ms=${Date.now() - diagnosticSeekAt} transport_lead_ms=${this.continuousSession.transportLeadMs}`);
     const audibleAt = outputAt + Math.max(0, Number(this.continuousSession.transportLeadMs) || 0);
     const waitMs = audibleAt - Date.now();
     if (waitMs > 0) await sleep(waitMs);
     if (generation !== this.playGeneration) return false;
     this.startedAt = audibleAt;
     log('info', `[${this.definition.name}] Seek completed inside continuous transport at ${this.basePosition.toFixed(1)}s.`);
+    log('info', `[TIMING][SEEK] [${this.definition.name}] track=${trackGeneration} completed_ms=${Date.now() - diagnosticSeekAt} audible_time_is_transport_estimate=true`);
     return true;
   }
 
