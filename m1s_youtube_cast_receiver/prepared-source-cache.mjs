@@ -61,6 +61,11 @@ export class PreparedSourceCache {
     this.entries.clear();
   }
 
+  has(videoId) {
+    this._prune();
+    return this.entries.has(String(videoId));
+  }
+
   displayMetadata(videoId) {
     this._prune();
     const entry = this.entries.get(String(videoId));

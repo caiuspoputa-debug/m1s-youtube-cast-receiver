@@ -44,7 +44,7 @@ const start=app.indexOf("            if (message.name === 'setPlaylist' && (stat
 const end=app.indexOf("            else if (message.name === 'updatePlaylist'",start);
 let stops=0,plays=0;
 const player={status:1,stop:async()=>stops++,play:async()=>plays++};
-const branch=new Function('__classPrivateFieldGet','_YouTubeApp_player','PLAYER_STATUSES','return async function(stateAfterSet){const message={name:"setPlaylist"};const stateBeforeSet={current:{id:"old"}};const payload={currentTime:0};const AID=1;'+app.slice(start,end)+'}')( ()=>player,0,Constants.PLAYER_STATUSES);
+const branch=new Function('__classPrivateFieldGet','_YouTubeApp_player','PLAYER_STATUSES','return async function(stateAfterSet){const message={name:"setPlaylist"};const stateBeforeSet={current:{id:"old"}};const payload={currentTime:0};const AID=1;const m1sEarlyPlay=null;'+app.slice(start,end)+'}')( ()=>player,0,Constants.PLAYER_STATUSES);
 await branch({current:{id:'new'}});assert.equal(stops,0);assert.equal(plays,1);
 await branch({current:null});assert.equal(stops,1);
 console.log('PASS: explicit TV/WEB autoplay parsing, no arbitrary recommendations; actual resolver WEB fallback; actual Playlist autoplay/Next capability; actual setPlaylist branch preserves playback and handles clear.');

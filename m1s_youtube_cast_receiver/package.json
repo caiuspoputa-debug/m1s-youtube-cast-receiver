@@ -1,13 +1,13 @@
 {
   "name": "m1s-youtube-cast-receiver",
-  "version": "1.0.30",
+  "version": "1.0.31",
   "private": true,
   "type": "module",
   "dependencies": {
     "yt-cast-receiver": "2.1.0"
   },
   "scripts": {
-    "test": "node tests/friendly-names.mjs && node tests/friendly-name-migration.mjs && node tests/friendly-name-settings.mjs && node tests/receiver-discovery.mjs && node tests/port-layout.mjs && node tests/regression.mjs && node tests/transition.mjs && node tests/navigation.mjs && node tests/ytm-sidecar-static.mjs && node tests/ha-metadata.mjs && node tests/member-mute.mjs && node tests/cast-discovery.mjs && node tests/discovery-interface.mjs && node tests/source-timing.mjs && node tests/cancelled-source.mjs && node tests/prepared-source-cache.mjs && node tests/natural-tail.mjs && node tests/natural-handoff.mjs && node tests/manual-selection.mjs",
-    "postinstall": "node patch-receiver.mjs && node patch-music.mjs && node patch-volume.mjs && node patch-discovery.mjs"
+    "test": "node tests/friendly-names.mjs && node tests/friendly-name-migration.mjs && node tests/friendly-name-settings.mjs && node tests/receiver-discovery.mjs && node tests/port-layout.mjs && node tests/regression.mjs && node tests/transition.mjs && node tests/navigation.mjs && node tests/ytm-sidecar-static.mjs && node tests/ha-metadata.mjs && node tests/member-mute.mjs && node tests/cast-discovery.mjs && node tests/discovery-interface.mjs && node tests/source-timing.mjs && node tests/cancelled-source.mjs && node tests/prepared-source-cache.mjs && node tests/natural-tail.mjs && node tests/natural-handoff.mjs && node tests/manual-selection.mjs && node tests/source-preparer.mjs && node tests/next-source-preparation.mjs && node tests/selection.mjs && node tests/control-trace.mjs && node tests/wake-state.mjs",
+    "postinstall": "node patch-receiver.mjs && node patch-music.mjs && node patch-volume.mjs && node patch-discovery.mjs && node patch-selection.mjs && node patch-controls.mjs && node patch-wake-state.mjs"
   }
 }

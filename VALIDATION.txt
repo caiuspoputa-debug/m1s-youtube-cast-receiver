@@ -1,36 +1,58 @@
-1.0.30 validation
+1.0.31 validation
 
-Full npm test suite passed, including the new tests/manual-selection.mjs.
-node --check index.mjs passed. Independent review reproduced the former false
-STOPPED state and verified cancellation at metadata and PCM/lead boundaries.
+Final npm postinstall and all 24 npm test scripts passed.
+Fresh yt-cast-receiver 2.1.0 downloaded from npm accepts all App/Playlist patches;
+reapplication is idempotent and syntax checks pass. Discovery's existing
+installed dependency patch and its lifecycle tests also pass.
 
-The new tests execute the actual pinned Player and production M1S subclass:
-- obsolete title lookup resolving before or after the new selection;
-- obsolete title lookup rejecting while the current song is already ready;
-- older play blocked on group preparation, PCM readiness or transport lead;
-- old initial transport confirmation after a new selection reused that session;
-- late HA reply only closes its abandoned local session, not the new one;
-- explicit normal YouTube Stop invalidates pending title preparation;
-- current validation and HA startup failures still publish STOPPED normally.
-External title, HA and PCM readiness events are controlled in these tests.
-They do not constitute a physical phone/hub playback test or remote HA ordering
-verification.
+Metadata-only successor preparation:
+- Existing 5-second progress interval prepares the next candidate when known
+  remaining duration is <=30seconds, avoiding early expiry on long tracks.
+- No audio is downloaded by preparation and no PCM buffer is introduced.
+- Same audio-format selector, existing cache and normal extraction fallback.
+- Deduplication, cache TTL, candidate cancellation, cleanup, bounded timeout,
+  background failure cooldown and spawn errors are covered by tests.
+- Real new SourcePreparer + yt-dlp test confirms ZERO audio HTTP requests during
+  preparation; normal cached playback then fetches and decodes correctly.
+- Real public-source benchmark: cold firstPCM2950ms vs prepared1121ms, with
+  identical decoded PCM length. This is a local extraction/decoding measurement,
+  not an end-to-end timing promise for the user's HA/network/hub.
 
-Exact comparison with the 1.0.29 archive confirms the entire PCM session class,
-PCM constants and buffers, source spawn/decode and prepared-source command path,
-FIFO, final period handling, output loop and pacing remain byte-identical.
-waitForTransportStarted and transport lead measurement are also identical.
-No integration, per-track HA restart, new buffer or timing offset is introduced.
-Production changes are limited to stale play lifecycle cancellation and guards.
+Manual selection:
+- Actual patched App, pinned Playlist, M1S Player and continuous-session tests
+  cover standalone/missing-list selections, numeric zero and inferred indices.
+- Explicit selection starts before a delayed navigation lookup; new video ID
+  is not reported with the old track clock. Old navigation cannot replay an
+  obsolete selection; navigation failure does not prevent the selected audio.
+- Three rapid selections with abort-aware AND abort-ignoring handlers keep the
+  newest navigation. Old refresh callbacks cannot clear a newer controller.
+- Explicit clear, removal, invalid IDs and real Stop retain normal behavior.
+- Patch targets are version checked, idempotent and prevalidated before writes.
 
-Physical end-of-song clipping followed by silence remains unresolved.
-A read-only audit of local integration source 0.37.20 found an existing individual
-source-rebuffer path that clears pending PCM and kills the remote receiver on
-HA PCM starvation. Occurrence at the user's cut has NOT been established.
-The installed integration version is not verified. Existing integration logs
-(single rebuffer started/ended) were requested before changing any transport.
-No integration source files were modified.
+Locked-phone recovery:
+- Both YT and YTM get full track, position and volume snapshots on the existing
+  progress interval, including guarded paused state.
+- Registered-sender wake/reconnect replies include full state immediately.
+- Snapshot generation/session/live queue ID/status/ownership are revalidated;
+  added wake messages are checked at the final network dispatch, after nested
+  asynchronous handler boundaries. Stale snapshots are dropped, never blanked.
+- Actual Play/Stop races at both microtask boundaries and live queue-only changes
+  are covered. A mutant disabling the final guard fails the corresponding test.
+- Actual phone setVolume after wake reaches M1S and HA volume_set without
+  Play/Stop. Existing adaptive volume steps and HA-owned mute are preserved.
 
-Publish sources and rebuild/update the add-on image. Confirm version 1.0.30.
-This release addresses the confirmed manual-selection false-STOPPED defect;
-it does not claim a confirmed physical tail-loss repair.
+Exact comparison: complete ContinuousAudioSession, all PCM/buffer constants,
+source decoder and command path, final-period assembly, FIFO and output pacing
+are byte-identical to1.0.29/1.0.30. Transport-start/lead measurement is identical.
+No duration cap, end timer, artificial time offset, per-track HA restart or
+integration/group synchronization change was introduced.
+
+Integration0.37.21 is retained; the user has confirmed complete audible endings
+with that integration. This add-on update has not been installed automatically,
+built as a Docker image, or tested acoustically on the physical phone/hub.
+The latest supplied user fragment contains progress and RPC reconnects, not the
+failing selection event; protocol defects are reproduced locally, and compact
+INFO [CONTROL] + [TIMING][PREFETCH] traces support physical confirmation.
+
+Publish the add-on sources and rebuild/update its image. Confirm1.0.31.
+Keep integration0.37.21. Full phone/hub validation remains required after update.

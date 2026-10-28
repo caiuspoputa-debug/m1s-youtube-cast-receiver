@@ -1,3 +1,21 @@
+## 1.0.31 — Trecere mai rapida si selectie manuala YouTube
+
+Pregateste informatiile urmatoarei surse inainte de final, prin extragere fara
+descarcare audio. Redarea reutilizeaza cache-ul existent si revine la extragerea
+normala daca pregatirea esueaza. Nu se adauga buffere sau offseturi de timp.
+
+Corecteaza selectiile explicite fara playlist ori cu index numeric 0/omis si
+elimina asteptarea recomandarilor inainte de pornirea piesei selectate. INFO
+[CONTROL] arata comenzile relevante si schimbarile de sesiune, fara tokenuri
+sau payload-uri integrale, daca redarea revine din nou pe telefon.
+
+Dupa deblocarea telefonului, YouTube primeste din nou starea completa cu piesa,
+pozitia si volumul curent. Actualizarea UI foloseste fluxul existent, fara comenzi audio.
+
+Pastrati integrarea **0.37.21**. Actualizati numai add-on-ul la **1.0.31**, prin
+publicarea surselor si reconstruirea/actualizarea imaginii. Bufferele, decodarea,
+ritmul PCM si sincronizarea sunt pastrate. Confirmarea fizica ramane necesara.
+
 ## 1.0.30 — Corectie pentru selectia manuala a piesei
 
 O cerere veche de selectare a piesei putea publica STOPPED pentru piesa noua,

@@ -1,3 +1,27 @@
+## 1.0.31 — Pregatirea urmatoarei surse si selectia manuala YouTube
+
+- Pregateste doar informatiile urmatoarei surse in ultimele 30 de secunde,
+  folosind intervalul de progres existent. Nu descarca audio in avans si nu
+  adauga un buffer PCM. La EOF, pornirea poate reutiliza sursa deja extrasa.
+- Selectiile explicite fara listId, cu index numeric 0 sau index omis pastreaza
+  piesa ceruta. Nu sunt transformate in golirea playlistului si STOP.
+- Selectia manuala porneste fara sa astepte cautarea recomandarilor; raspunsul
+  intarziat al navigatiei nu poate reporni o cerere depasita.
+- Loguri INFO [CONTROL] compacte arata comenzile si schimbarile de sesiune,
+  fara payload-uri integrale, tokenuri, URL-uri sau mesaje periodice noop.
+- YouTube primeste din nou piesa si pozitia completa dupa revenirea din fundal;
+  reconectarea si actualizarea periodica sunt protejate de generatia sesiunii.
+  Nu se emite o stare goala si nu se reporneste redarea pentru resincronizarea UI.
+
+Sursa pregatita foloseste acelasi selector de format si cache-ul existent,
+cu anulare, expirare si revenire la extragerea normala in caz de esec.
+Coada audio, bufferele, decodarea, ritmul PCM si lead-ul transportului sunt
+pastrate. Nu se scurteaza durata si nu se plafoneaza artificial pozitia.
+
+Pastrati integrarea 0.37.21, care a reparat finalul taiat confirmat pe hub.
+Publicati sursele add-on-ului si reconstruiti/actualizati imaginea la 1.0.31.
+Testele locale si masuratorile reale nu inlocuiesc verificarea pe telefon/hub.
+
 ## 1.0.30 — Selectia manuala nu mai primeste STOP de la o cerere veche
 
 Corecteaza un defect reprodus cu Player-ul real: doua selectii suprapuse pot

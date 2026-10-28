@@ -12,10 +12,11 @@ const logger={debug(){},info(){},warn(){},error(){}};
 const Handler=createQueueHandler(BrokenRemote,Constants.AUTOPLAY_MODES.ENABLED);
 const q=new Playlist();q.setLogger(logger);const handler=new Handler();handler.setLogger(logger);q.setRequestHandler(handler);
 const client={key:'YT'};
-await q.updateByMessage({name:'setPlaylist',payload:{listId:'test',videoIds:'a,b,c',videoId:'a',currentIndex:'0'}},client);
-assert.equal(q.hasNext,true);assert.equal(q.getState().next.id,'b');assert.equal(q.hasPrevious,false);
-assert.equal((await q.next()).id,'b');assert.equal(q.hasPrevious,true);assert.equal(q.getState().next.id,'c');
-assert.equal((await q.previous()).id,'a');await q.next();await q.next();assert.equal(q.hasNext,false);assert.equal(await q.next(),null);assert.equal(remoteCalls,0);
+const [videoA,videoB,videoC]=['AAAAAAAAAAA','BBBBBBBBBBB','CCCCCCCCCCC'];
+await q.updateByMessage({name:'setPlaylist',payload:{listId:'test',videoIds:[videoA,videoB,videoC].join(','),videoId:videoA,currentIndex:'0'}},client);
+assert.equal(q.hasNext,true);assert.equal(q.getState().next.id,videoB);assert.equal(q.hasPrevious,false);
+assert.equal((await q.next()).id,videoB);assert.equal(q.hasPrevious,true);assert.equal(q.getState().next.id,videoC);
+assert.equal((await q.previous()).id,videoA);await q.next();await q.next();assert.equal(q.hasNext,false);assert.equal(await q.next(),null);assert.equal(remoteCalls,0);
 // Enabled autoplay at end still uses remote recommendations, not a loop to item 1.
 await q.setAutoplayMode(Constants.AUTOPLAY_MODES.ENABLED);assert.equal(remoteCalls,1);assert.equal(q.autoplay,null);
 const code=fs.readFileSync(new URL('../index.mjs', import.meta.url),'utf8');
@@ -38,7 +39,10 @@ let eof=p.handleContinuousSourceEof('a',1);for(let i=0;i<4;i++)await Promise.res
 eof=p.handleContinuousSourceEof('a',1);for(let i=0;i<4;i++)await Promise.resolve();session.currentTrackGeneration=2;drainResolve(Date.now());await eof;assert.equal(stops,1);
 // Actual staged-successor PCM and state-boundary behavior is exercised by natural-handoff.mjs.
 // Reconnection publishes state but never alters playback status/transport.
-p.ownsTarget=true;p.startedAt=Date.now()-10000;p.connectedSenderIds.add('phone');let updates=0;p.notifyExternalStateChange=async(...args)=>{assert.equal(args.length,0);updates++;};
+p.ownsTarget=true;p.startedAt=Date.now()-10000;p.connectedSenderIds.add('phone');let updates=0;
+p.queue.current={id:p.currentVideoId};
+p.getState=async()=>({status:p.status,queue:{current:{id:p.currentVideoId}},position:10,duration:100,volume:{level:5,muted:false}});
+p.emit=(event,snapshot)=>{assert.equal(event,'state');assert.equal(snapshot.previous,null);updates++;};
 await p.publishProgress();assert.equal(updates,1);p.status=Constants.PLAYER_STATUSES.LOADING;await p.publishProgress();assert.equal(updates,1);p.status=Constants.PLAYER_STATUSES.PLAYING;p.connectedSenderIds.clear();await p.publishProgress();assert.equal(updates,1);
 p.startProgressUpdates();const timer=p.progressTimer;p.startProgressUpdates();assert.equal(p.progressTimer,timer);p.stopProgressUpdates();assert.equal(p.progressTimer,null);
 console.log('PASS: real library queue navigation with broken remote endpoints; autoplay boundary; immediate startup fallback; exact serial/source change; EOF drain and stale-stop guard; next inside one session; progress publication and timer lifecycle.');

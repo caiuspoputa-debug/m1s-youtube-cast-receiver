@@ -23,6 +23,7 @@ COPY package.json /app/package.json
 COPY patch-receiver.mjs next-navigation.mjs /app/
 COPY patch-music.mjs music-start.mjs /app/
 COPY patch-volume.mjs patch-discovery.mjs /app/
+COPY patch-selection.mjs patch-controls.mjs patch-wake-state.mjs /app/
 RUN npm install --omit=dev --no-audit --no-fund
 COPY index.mjs /app/index.mjs
 COPY queue-handler.mjs /app/queue-handler.mjs
@@ -34,6 +35,7 @@ COPY receiver-discovery.mjs /app/receiver-discovery.mjs
 COPY discovery-network.mjs /app/discovery-network.mjs
 COPY source-timing.mjs /app/source-timing.mjs
 COPY prepared-source-cache.mjs /app/prepared-source-cache.mjs
+COPY source-preparer.mjs /app/source-preparer.mjs
 COPY run.sh /run.sh
 RUN chmod a+x /run.sh
 

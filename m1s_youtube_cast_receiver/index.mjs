@@ -9,6 +9,7 @@ import { createQueueHandler } from './queue-handler.mjs';
 import { detectDiscoveryNetwork } from './discovery-network.mjs';
 import { createSourceTimingFile, observeSourceTiming } from './source-timing.mjs';
 import { PreparedSourceCache } from './prepared-source-cache.mjs';
+import { SourcePreparer } from './source-preparer.mjs';
 import {
   castFriendlyName,
   detectedReceiverName,
@@ -27,6 +28,7 @@ const OPTIONS_PATH = '/data/options.json';
 const YTDLP = '/opt/yt-dlp/bin/yt-dlp';
 const FRIENDLY_NAME_SETTINGS_PORT = 18199;
 const preparedSources = new PreparedSourceCache();
+const NEXT_SOURCE_PREPARE_AHEAD_SECONDS = 30;
 
 function readOptions() {
   const raw = JSON.parse(fs.readFileSync(OPTIONS_PATH, 'utf8'));
@@ -992,6 +994,8 @@ class M1SPlayer extends Player {
     this.pendingGroupSenderRestore = Promise.resolve();
     this.progressTimer = null;
     this.progressPublishing = false;
+    this.nextSourcePreparer = null;
+    this.nextPreparedCandidateId = null;
 
     // Exact v0.3.7 individual-group session memory. Capture once before the
     // first automatic removal and never overwrite it on next/seek/resume.
@@ -1008,23 +1012,25 @@ class M1SPlayer extends Player {
   async publishProgress() {
     if (this.progressPublishing || !this.continuousSession?.active || !this.ownsTarget
         || this.sessionRelinquished || !this.connectedSenderIds.size
-        || (this.startedAt === null && !(this.musicSenderActive && this.paused))
+        || (this.startedAt === null && !this.paused)
         || this.status === Constants.PLAYER_STATUSES.LOADING) return;
     this.progressPublishing = true;
     try {
-      if (!this.musicSenderActive) {
-        await this.notifyExternalStateChange();
-      } else {
-        const session = this.continuousSession;
-        const generation = this.playGeneration;
-        const current = await this.getState();
-        if (session !== this.continuousSession || generation !== this.playGeneration
-            || !session.active || !this.connectedSenderIds.size || !this.ownsTarget
-            || this.sessionRelinquished
-            || ![Constants.PLAYER_STATUSES.PLAYING, Constants.PLAYER_STATUSES.PAUSED].includes(current.status)) return;
-        // YTM needs a complete snapshot after reconnect, not just a time delta.
-        this.emit('state', { current, previous: null });
-      }
+      const session = this.continuousSession;
+      const generation = this.playGeneration;
+      const videoId = this.currentVideoId;
+      const current = await this.getState();
+      if (session !== this.continuousSession || generation !== this.playGeneration
+          || !videoId || videoId !== this.currentVideoId || current.queue.current?.id !== videoId
+          || this.queue.current?.id !== videoId
+          || !session.active || !this.connectedSenderIds.size || !this.ownsTarget
+          || this.sessionRelinquished
+          || ![Constants.PLAYER_STATUSES.PLAYING, Constants.PLAYER_STATUSES.PAUSED].includes(this.status)
+          || current.status !== this.status
+          || ![Constants.PLAYER_STATUSES.PLAYING, Constants.PLAYER_STATUSES.PAUSED].includes(current.status)) return;
+      // Both YT and YTM can miss a track change while the phone is locked.
+      // Include its identity as well as its clock when the app resumes.
+      this.emit('state', { current, previous: null });
     }
     catch (error) { log('debug', `[${this.definition.name}] Progress publication failed.`, error?.message); }
     finally { this.progressPublishing = false; }
@@ -1032,13 +1038,50 @@ class M1SPlayer extends Player {
 
   startProgressUpdates() {
     if (this.progressTimer) return;
-    this.progressTimer = setInterval(() => void this.publishProgress(), 5000);
+    void this.refreshNextSourcePreparation();
+    this.progressTimer = setInterval(() => {
+      void this.refreshNextSourcePreparation();
+      void this.publishProgress();
+    }, 5000);
     this.progressTimer.unref?.();
   }
 
   stopProgressUpdates() {
     if (this.progressTimer) clearInterval(this.progressTimer);
     this.progressTimer = null;
+  }
+
+  refreshNextSourcePreparation() {
+    // Prepare only source information. Audio decoding and the actual queue
+    // handoff remain governed by decoder EOF and the existing PCM transport.
+    if (typeof SourcePreparer === 'undefined') return Promise.resolve(false);
+    if (!this.continuousSession?.active || !this.ownsTarget || this.sessionRelinquished || this.paused) {
+      this.nextSourcePreparer?.cancel();
+      this.nextPreparedCandidateId = null;
+      return Promise.resolve(false);
+    }
+    if (this.queue.isUpdating) return Promise.resolve(false);
+    const candidate = this.queue.getState().next || (this.autoplayMode === Constants.AUTOPLAY_MODES.ENABLED
+      ? this.queue.autoplay : null);
+    const id = safeVideoId(candidate?.id);
+    if (!id || id === this.currentVideoId) {
+      this.nextSourcePreparer?.cancel();
+      this.nextPreparedCandidateId = null;
+      return Promise.resolve(false);
+    }
+    if (this.nextPreparedCandidateId !== id) this.nextSourcePreparer?.cancel();
+    this.nextPreparedCandidateId = id;
+    if (this.duration > 0 && this.duration - this.currentPosition() > NEXT_SOURCE_PREPARE_AHEAD_SECONDS) {
+      this.nextSourcePreparer?.cancel();
+      return Promise.resolve(false);
+    }
+    if (!this.nextSourcePreparer) this.nextSourcePreparer = new SourcePreparer({
+      cache: preparedSources, ytdlp: YTDLP, log, label: `[${this.definition.name}]`
+    });
+    return this.nextSourcePreparer.prepare(id).catch(error => {
+      log('debug', `[${this.definition.name}] Next source preparation unavailable.`, error?.message || String(error));
+      return false;
+    });
   }
 
   currentPosition() {
@@ -1370,6 +1413,7 @@ class M1SPlayer extends Player {
       this.title = metadata?.title || this.title;
       this.artist = metadata?.artist || metadata?.uploader || metadata?.channel || this.artist;
       this.duration = Number(metadata?.duration || 0) || this.duration;
+      void this.refreshNextSourcePreparation();
       log('debug', `[${this.definition.name}] Metadata ready: ${this.title}`, this.duration ? `${this.duration.toFixed(1)}s` : '');
       if (this.metadataPublishedGeneration === generation) {
         void this.publishHomeAssistantMetadata(videoId, generation);
@@ -1444,6 +1488,7 @@ class M1SPlayer extends Player {
       this.startedAt = transportAt;
       this.basePosition = prepared.position;
       this.scheduleHomeAssistantMetadata(prepared.id, prepared.generation);
+      void this.refreshNextSourcePreparation();
       log('info', `[${this.definition.name}] Continuous YT/YTM session is audible; no more HA Play/Stop at song boundaries.`);
       log('info', `[TIMING][START] [${this.definition.name}] session=${serial} completed_ms=${Date.now() - diagnosticStartAt} transport_lead_ms=${session.transportLeadMs} audible_time_is_transport_estimate=true`);
       return true;
@@ -1490,6 +1535,7 @@ class M1SPlayer extends Player {
     this.startedAt = audibleAt;
     this.basePosition = prepared.position;
     this.scheduleHomeAssistantMetadata(prepared.id, prepared.generation);
+    void this.refreshNextSourcePreparation();
     return true;
   }
 
@@ -1620,6 +1666,8 @@ class M1SPlayer extends Player {
   invalidateNaturalHandoff() {
     this.naturalAdvanceBoundary = null;
     this.naturalAdvanceInProgress = false;
+    this.nextSourcePreparer?.cancel();
+    this.nextPreparedCandidateId = null;
   }
 
   async handleContinuousSourceEof(videoId, sourceGeneration) {
@@ -1722,9 +1770,13 @@ class M1SPlayer extends Player {
       await this.notifyExternalStateChange(Constants.PLAYER_STATUSES.PLAYING);
       if (!stillCommitted()) return;
       this.scheduleHomeAssistantMetadata(id, committedGeneration);
+      void this.refreshNextSourcePreparation();
       setTimeout(() => void this.enrichMetadata(id, committedGeneration), 750);
       if (navigation) void navigation.then(async () => {
-        if (stillCommitted()) await this.notifyExternalStateChange();
+        if (stillCommitted()) {
+          void this.refreshNextSourcePreparation();
+          await this.notifyExternalStateChange();
+        }
       }).catch(error => log('debug', `[${this.definition.name}] Natural-next state refresh failed.`, error?.message || String(error)));
       log('info', `[${this.definition.name}] Natural successor committed at the existing PCM/transport boundary.`, `session=${session.serial} track=${successorGeneration}`);
     } catch (error) {
@@ -2026,6 +2078,10 @@ function installQueueLogging(player) {
   queue.on('autoplayModeChange', (previous, current) => {
     log('info', `[${player.definition.name}] Autoplay mode: ${previous} -> ${current}`);
   });
+  for (const event of ['videoSelected', 'videoAdded', 'videoRemoved', 'playlistSet',
+    'playlistAdded', 'playlistCleared', 'playlistUpdated', 'autoplayModeChange']) {
+    queue.on(event, () => void player.refreshNextSourcePreparation());
+  }
 }
 
 receiverDefinitions = await discoverReceiverDefinitions();
