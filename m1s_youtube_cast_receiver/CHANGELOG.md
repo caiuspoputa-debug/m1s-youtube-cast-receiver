@@ -1,3 +1,21 @@
+## 1.0.20 — Reanuntare pentru descoperirea Cast
+
+Adauga exclusiv in biblioteca DIAL anunturi SSDP repetate la 1, 3 si 7 secunde
+si apoi la aproximativ 15 secunde (decalaj initial intre receivere). Telefonul
+poate astfel primi din nou anunturile dupa redeschiderea YouTube / YouTube Music.
+Raspunsurile M-SEARCH, identitatile, numele si porturile raman neschimbate.
+Timerele sunt eliminate inainte de oprirea receiverului.
+
+Codul de redare, fluxul PCM continuu, sincronizarea, volumul, coada si integrarea
+Aqara sunt identice cu 1.0.19. Nu este adaugat un receiver Google Cast/mDNS.
+Aplicatia si reteaua pot influenta in continuare timpul real de descoperire.
+
+Inlocuieste sursele si reconstruieste/reinstaleaza imaginea add-on-ului.
+O simpla repornire a imaginii vechi nu aplica patch-ul. Confirma versiunea
+1.0.20 si mesajul de build "periodic SSDP announcements enabled".
+Pastreaza optiunile si datele persistente existente; integrarea Aqara nu necesita
+actualizare. Verifica de cateva ori inchiderea/redeschiderea YT si YTM.
+
 ## 1.0.19 — Coordinator included in individual receivers
 
 - Broaden the default discovery match from `aqara_m1s_zigbee_router` to
