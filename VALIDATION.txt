@@ -1,25 +1,19 @@
-1.0.20 - Faster DIAL/SSDP rediscovery
+1.0.22 validation
 
-Scope: only DIAL presence announcements. Original announcement contents,
-M-SEARCH handler, DIAL routes, names and identities are preserved.
-Announce at startup, after 1/3/7 seconds, then every 15 seconds after an initial
-15-17 second stagger. Stop clears timers before the existing byebye operation.
-No Google Cast or mDNS emulation is introduced.
+npm test: all tests passed. New automatic LAN selection covers original eno1,
+another eth0 host/IP, changed IP on restart, wlan0, internal/VPN exclusion,
+ambiguous/missing network rejection. Real installed peer-ssdp dependency is
+executed with simulated host interfaces and verifies filtered socket creation
+and interface rescans. Existing playback, transitions, navigation, YTM, volume,
+metadata and discovery announcement regression tests pass.
+node --check index.mjs: passed.
 
-Validation:
-- npm postinstall: passed against yt-cast-receiver 2.1.0 and peer-dial 0.1.3.
-- npm test: passed, including the existing playback, navigation, transitions,
-  YTM controls/state, volume, metadata, naming and port regression tests.
-- New discovery tests execute the patched installed dependency setup with
-  deterministic timers: repeated presence, unchanged identity and search reply,
-  no extra ready event, independent receiver timers, stop/close cleanup.
-- SHA256 comparison against original 1.0.19 ZIP: all original runtime source
-  modules, playback patches, audio and synchronization code are byte-identical.
-  Changes: discovery patch/test, package/build wiring, release version/docs,
-  and version assertions in the existing static test.
-- No physical phone/hub/LAN test or Docker build was performed here.
-  Actual YT/YTM discovery improvement requires testing on the user's network.
+Scope: new discovery-network.mjs, import/startup detection and DIAL binding
+options in index.mjs, Docker COPY, tests, version/docs. Audio stream host
+selection and playback/synchronization code are unchanged. No persisted network
+option or migration required. Detection runs at each add-on process start;
+network changes while running require restarting the add-on.
+No physical LAN test or Docker build performed here.
 
-Installation: replace repository sources and rebuild/reinstall the add-on image.
-Restarting an old image does not install this patch. Preserve add-on data/options.
-Aqara integration does not need updating. Confirm add-on version 1.0.20.
+Installation: replace sources, rebuild/reinstall add-on image, confirm 1.0.22.
+Inspect DIAL/SSDP LAN startup log. Preserve options/data and Aqara integration.

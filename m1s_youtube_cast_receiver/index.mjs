@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process';
 import YouTubeCastReceiver, { Constants, Player, DefaultPlaylistRequestHandler } from 'yt-cast-receiver';
 
 import { createQueueHandler } from './queue-handler.mjs';
+import { detectDiscoveryNetwork } from './discovery-network.mjs';
 import {
   castFriendlyName,
   friendlyNameOverride,
@@ -1828,6 +1829,8 @@ log('info', `Audio bridge listening on http://${streamHost}:${cfg.audioPort}`);
 const runtimeReceivers = [];
 
 try {
+  const discoveryNetwork = await detectDiscoveryNetwork();
+  log('info', `DIAL/SSDP LAN: ${discoveryNetwork.interface} / ${discoveryNetwork.address}`);
   for (const def of receiverDefinitions) {
     const player = new M1SPlayer(def);
     await initializeVolume(player);
@@ -1840,7 +1843,11 @@ try {
         enableAutoplayOnConnect: true,
         resetPlayerOnDisconnectPolicy: Constants.RESET_PLAYER_ON_DISCONNECT_POLICIES.ALL_EXPLICITLY_DISCONNECTED
       },
-      dial: { port: def.port },
+      dial: {
+        port: def.port,
+        bindToInterfaces: [discoveryNetwork.interface],
+        bindToAddresses: [discoveryNetwork.address]
+      },
       device: {
         name: def.name,
         screenName: `YouTube on ${def.name}`,

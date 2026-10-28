@@ -1,3 +1,37 @@
+## 1.0.22 — Selectie automata LAN pentru DIAL/SSDP
+
+La fiecare pornire a add-on-ului, interfata si IPv4 pentru descoperire sunt
+recalculate din interfetele hostului si ruta IPv4 implicita (/proc/net/route).
+Nu exista IP sau nume de interfata fix. Sunt excluse interfetele uzuale Docker,
+Home Assistant interne, Tailscale si VPN. Daca exista mai multe rute LAN, se
+prefera metrica cea mai mica. Fara ruta implicita se accepta doar o singura
+adresa LAN eligibila. Detectia neclara este reincercata pana la 15 verificari;
+in lipsa unei selectii sigure, add-on-ul raporteaza eroarea, fara publicare pe
+adrese alese arbitrar. Schimbarea retelei in timpul functionarii necesita
+repornirea add-on-ului pentru recalculare.
+
+Setarile sunt aplicate automat in memorie, fara scrierea unui IP vechi in
+options.json. Logul arata: DIAL/SSDP LAN: <interfata> / <IPv4>.
+Redarea si sincronizarea raman neschimbate. Anunturile periodice sunt pastrate.
+Inlocuieste sursele si reconstruieste/reinstaleaza imaginea; confirma 1.0.22.
+Integrarea Aqara nu necesita actualizare.
+
+## 1.0.21 — DIAL/SSDP numai pe LAN
+
+Descoperirea tuturor receiverelor este limitata explicit la interfata eno1
+si adresa 192.168.0.20. Adresele Docker si Tailscale nu mai sunt selectate
+pentru anunturi sau raspunsuri SSDP. Aceasta versiune este specifica retelei
+utilizatorului; daca interfata sau IP-ul se schimba, restrictia trebuie actualizata.
+Anunturile periodice din 1.0.20 sunt pastrate.
+
+Singura modificare in index.mjs este configuratia dial.bindToInterfaces si
+bindToAddresses. Redarea, sincronizarea, transportul audio, volumul, coada,
+numele, porturile si datele persistente nu sunt modificate.
+
+Inlocuieste sursele si reconstruieste/reinstaleaza imaginea add-on-ului.
+Confirma versiunea 1.0.21. Simpla repornire a imaginii vechi nu aplica sursele.
+Integrarea Aqara nu necesita actualizare.
+
 ## 1.0.20 — Reanuntare pentru descoperirea Cast
 
 Adauga exclusiv in biblioteca DIAL anunturi SSDP repetate la 1, 3 si 7 secunde
