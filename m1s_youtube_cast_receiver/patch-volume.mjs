@@ -8,4 +8,11 @@ if (!source.includes(marker)) {
   if (source.split(before).length !== 2) throw Error('Phone volume patch target mismatch');
   fs.writeFileSync(file, marker + '\n' + source.replace(before,after));
 }
-console.log('M1S 1.0.6: Cast phone volume uses one-point steps.');
+const fineMarker = '// M1S 1.0.24 preserve fractional phone volume';
+source = fs.readFileSync(file,'utf8').replace(/\r\n/g,'\n');
+if (!source.includes(fineMarker)) {
+  const before = 'level: parseInt(payload.volume, 10),';
+  if (source.split(before).length !== 2) throw Error('Fractional phone volume patch target mismatch');
+  fs.writeFileSync(file, fineMarker + '\n' + source.replace(before, 'level: parseFloat(payload.volume),'));
+}
+console.log('M1S 1.0.24: Cast phone volume uses adaptive steps; fractional requests preserved.');

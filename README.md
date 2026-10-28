@@ -1,3 +1,20 @@
+## 1.0.24 — Volum fin din YouTube / YouTube Music
+
+Comenzile Cast de volum folosesc aceeasi scara ca butoanele cardului HA:
+0-0,2%: pas 0,01%; 0,2-1%: pas 0,1%; 1-100%: pas 1%.
+La crestere, pragul selecteaza intervalul urmator; la scadere, pe cel inferior.
+Exemplu: 2 -> 1 -> 0,9 -> ... -> 0,2 -> 0,19 -> ... -> 0%.
+O comanda Cast aplica un singur pas in directia ceruta. Comenzile rapide sunt
+procesate succesiv. Se pastreaza mute-ul real din HA, fara unmute automat.
+Cereri fractionare sunt citite fara trunchiere, iar volumul initial HA pastreaza
+precizia de 0,01 puncte procentuale. Butoanele fizice beneficiaza de regula cand
+Android/YT/YTM trimit comenzile lor sesiunii Cast; afisajul aplicatiei poate rotunji.
+
+Redarea, sincronizarea, fluxul PCM, descoperirea LAN automata si numele nu sunt
+modificate. Cardurile si integrarea HA nu sunt modificate.
+Inlocuieste sursele si reconstruieste/reinstaleaza imaginea. Confirma 1.0.24.
+Testele locale au trecut; validarea pe telefon/hub ramane de efectuat.
+
 ## 1.0.23 — Diacritice corecte si nume fara IP
 
 Numele generate automat din Home Assistant pastreaza diacriticele romanesti.

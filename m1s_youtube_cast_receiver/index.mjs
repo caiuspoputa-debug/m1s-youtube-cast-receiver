@@ -1686,14 +1686,26 @@ class M1SPlayer extends Player {
   }
 
   async setPhoneVolume(volume, AID) {
-    // Only the Cast phone command path uses one-point steps. Absolute volume
+    // Only the Cast phone command path uses adaptive steps. Absolute volume
     // calls and the HA integration slider retain their existing behavior.
     const operation = Promise.resolve(this.phoneVolumeQueue).catch(() => false).then(async () => {
       const current = await this.getVolume();
       const requested = Number(volume?.level);
-      const level = Number.isFinite(requested)
-        ? Math.min(100, Math.max(0, current.level + Math.sign(requested - current.level)))
-        : current.level;
+      let level = current.level;
+      if (Number.isFinite(requested)) {
+        // Integer hundredths of a percent avoid drift at the 0.2% / 1% boundaries.
+        const ticks = Math.round(Math.min(100, Math.max(0, current.level)) * 100);
+        const direction = Math.sign(requested - current.level);
+        if (direction < 0) {
+          level = (ticks <= 20 ? Math.max(0, ticks - 1)
+            : ticks <= 100 ? Math.max(20, ticks - 10)
+              : Math.max(100, ticks - 100)) / 100;
+        } else if (direction > 0) {
+          level = (ticks < 20 ? Math.min(20, ticks + 1)
+            : ticks < 100 ? Math.min(100, ticks + 10)
+              : Math.min(10000, ticks + 100)) / 100;
+        }
+      }
       // Mute belongs to the Home Assistant media-player tile. Cast volume
       // packets often contain muted=false even when the user only changed the
       // level, so forwarding that field can silently unmute an individual hub.
@@ -1750,7 +1762,7 @@ async function initializeVolume(player) {
     const level = Number(attrs.volume_level);
     const muted = Boolean(attrs.is_volume_muted);
     if (Number.isFinite(level)) {
-      player.volume = { level: Math.round(level * 100), muted };
+      player.volume = { level: Math.round(Math.min(1, Math.max(0, level)) * 10000) / 100, muted };
     }
   } catch (error) {
     log('warn', `[${player.definition.name}] Could not read initial target volume.`, error.message);

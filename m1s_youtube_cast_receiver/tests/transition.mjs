@@ -98,6 +98,34 @@ v.volume.level=0;await v.setPhoneVolume({level:-3});assert.equal(v.volume.level,
 v.volume.level=100;await v.setPhoneVolume({level:103});assert.equal(v.volume.level,100);
 await v.setVolume({level:37,muted:false});assert.equal(v.volume.level,37);
 console.log('PASS: phone volume steps +/-1, ordered rapid commands, HA-owned mute and boundaries; non-phone absolute setVolume unchanged.');
+// Follow the exact same scale as the HA card, including both sides of thresholds.
+for (const [initial,requested,expected] of [
+  [2,0,1],[1.5,0,1],[1,0,0.9],[0.9,0,0.8],[0.25,0,0.2],
+  [0.2,0,0.19],[0.19,0,0.18],[0.01,0,0],[0,100,0.01],
+  [0.19,100,0.2],[0.2,100,0.3],[0.95,100,1],[1,100,2],
+  [99.5,100,100],[0.2,0.2,0.2],[0.2,NaN,0.2]
+]) {
+  v.volume={level:initial,muted:true};
+  await v.setPhoneVolume({level:requested,muted:false});
+  assert.equal(v.volume.level,expected,`${initial} -> ${requested}`);
+  assert.equal(v.volume.muted,true);
+}
+v.volume={level:0,muted:false};
+await Promise.all(Array.from({length:30},()=>v.setPhoneVolume({level:100})));
+assert.equal(v.volume.level,3);
+for(let i=0;i<30;i++) await v.setPhoneVolume({level:0});
+assert.equal(v.volume.level,0);
+await v.setVolume({level:0.157,muted:false});
+assert.equal(v.volume.level,0.157,'non-phone absolute volume remains unchanged');
+const appSource=fs.readFileSync(new URL('../node_modules/yt-cast-receiver/dist/lib/app/YouTubeApp.js',import.meta.url),'utf8');
+assert.ok(appSource.includes('level: parseFloat(payload.volume),'));
+assert.ok(!appSource.includes('level: parseInt(payload.volume, 10),'));
+const indexSource=fs.readFileSync(new URL('../index.mjs',import.meta.url),'utf8');
+const initializeCode=indexSource.slice(indexSource.indexOf('async function initializeVolume('),indexSource.indexOf('function installQueueLogging('));
+const init=new Function('haRequest','log',initializeCode+'; return initializeVolume;')(async()=>({attributes:{volume_level:0.0019,is_volume_muted:true}}),()=>{});
+await init(v);
+assert.deepEqual(v.volume,{level:0.19,muted:true});
+console.log('PASS: fine phone volume scale, threshold crossings, ordered bursts, decimal parsing and initial HA precision.');
 const refresh=await setup(Fixed);const f=refresh.p;f.musicSenderActive=true;
 f.continuousSession={active:true};f.ownsTarget=true;f.startedAt=Date.now();
 f.noteSenderConnected({id:'music-phone'});
