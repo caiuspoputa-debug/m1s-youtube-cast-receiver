@@ -1,3 +1,24 @@
+## 1.0.32 — Selectie explicita si notificarea piesei urmatoare
+
+- Comenzile updatePlaylist cu VIDEO_SELECTED selecteaza piesa ceruta, inclusiv
+  cand identificatorul este in eventDetails. Actualizarile obisnuite ale listei,
+  adaugarea, eliminarea si golirea ei isi pastreaza sensul.
+- O selectie fara lista retransmisa pastreaza coada cunoscuta numai daca este
+  acelasi playlist si piesa exista deja in ea. Astfel nu pierde urmatoarea piesa.
+- La terminarea cautarii navigatiei se publica imediat starea completa si
+  identificatorul real autoplayUpNext; progresul periodic nu mai publica Next
+  indisponibil cat timp cautarea este in curs.
+- La revenirea telefonului se trimit si modul autoplay si piesa urmatoare;
+  o recomandare veche nu poate suprascrie navigatia devenita disponibila intre timp.
+- INFO [M1S-CAST] arata tipul evenimentului, marimea listei si rezultatul
+  actualizarii cozii, fara payload-uri complete sau tokenuri.
+
+Testele cu App/Player/Playlist reale acopera YouTube si YouTube Music, selectii
+suprapuse, lista de 101 piese si navigatie intarziata. Aceste cazuri sunt
+reproduse local; confirmarea comportamentului pe telefon ramane necesara.
+Nu se modifica sesiunea PCM, bufferele, decodarea, ritmul sau sincronizarea.
+Pastrati integrarea 0.37.21. Publicati sursele si reconstruiti add-on-ul 1.0.32.
+
 ## 1.0.31 — Pregatirea urmatoarei surse si selectia manuala YouTube
 
 - Pregateste doar informatiile urmatoarei surse in ultimele 30 de secunde,
@@ -7,7 +28,7 @@
   piesa ceruta. Nu sunt transformate in golirea playlistului si STOP.
 - Selectia manuala porneste fara sa astepte cautarea recomandarilor; raspunsul
   intarziat al navigatiei nu poate reporni o cerere depasita.
-- Loguri INFO [CONTROL] compacte arata comenzile si schimbarile de sesiune,
+- Loguri INFO [M1S-CAST] compacte arata comenzile si schimbarile de sesiune,
   fara payload-uri integrale, tokenuri, URL-uri sau mesaje periodice noop.
 - YouTube primeste din nou piesa si pozitia completa dupa revenirea din fundal;
   reconectarea si actualizarea periodica sunt protejate de generatia sesiunii.

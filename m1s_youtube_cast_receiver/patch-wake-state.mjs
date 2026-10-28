@@ -21,7 +21,19 @@ async function m1sReadWakePlaybackState(player) {
             && [PLAYER_STATUSES.PLAYING, PLAYER_STATUSES.PAUSED].includes(current.status)
             && current.status === player.status && current.queue.current?.id === videoId;
         if (!isCurrent()) return null;
-        return { current, isCurrent };
+        // Navigation may finish while getState reads position/volume. Keep
+        // the actual successor, current list and index from the live queue.
+        current.queue = player.queue.getState();
+        if (!isCurrent()) return null;
+        const nextId = current.queue.next?.id || null;
+        const autoplayId = current.queue.autoplay?.id || null;
+        const autoplayMode = player.queue.autoplayMode;
+        const isNavigationCurrent = () => {
+            if (!isCurrent() || player.queue.isUpdating || player.queue.autoplayMode !== autoplayMode) return false;
+            const queue = player.queue.getState();
+            return (queue.next?.id || null) === nextId && (queue.autoplay?.id || null) === autoplayId;
+        };
+        return { current, isCurrent, isNavigationCurrent };
     } catch (_) {
         return null;
     }
@@ -31,9 +43,37 @@ function m1sQueueWakeMessages(sendMessages, snapshot, isActive, AID, navInfo) {
     if (!isCurrent()) return;
     const current = snapshot.current;
     const messages = [new Message.NowPlaying(AID, current), new Message.OnStateChange(AID, current),
-        new Message.OnHasPreviousNextChanged(AID, navInfo), new Message.OnVolumeChanged(AID, current.volume)];
+        new Message.OnVolumeChanged(AID, current.volume)];
     for (const message of messages) m1sWakeMessageGuards.set(message, isCurrent);
+    if (snapshot.isNavigationCurrent()) {
+        const navigation = [new Message.OnHasPreviousNextChanged(AID, navInfo),
+            new Message.OnAutoplayModeChanged(AID, navInfo),
+            new Message.AutoplayUpNext(AID, current.queue.autoplay?.id || null)];
+        for (const message of navigation) m1sWakeMessageGuards.set(message, () => isCurrent() && snapshot.isNavigationCurrent());
+        messages.push(...navigation);
+    }
     sendMessages.push(...messages);
+}
+function m1sGuardQueuedNavigation(sendMessages, player, isActive) {
+    const previous = player.queue.getState();
+    const generation = player.playGeneration;
+    const session = player.continuousSession;
+    const mode = player.queue.autoplayMode;
+    const isCurrent = () => {
+        if (!isActive() || player.queue.isUpdating || generation !== player.playGeneration
+            || session !== player.continuousSession || mode !== player.queue.autoplayMode) return false;
+        const current = player.queue.getState();
+        return current.current?.id === previous.current?.id
+            && (current.next?.id || null) === (previous.next?.id || null)
+            && (current.autoplay?.id || null) === (previous.autoplay?.id || null);
+    };
+    // The library queued these two replies before the registered-wake read.
+    // They need the same final freshness check as the added wake messages.
+    for (const message of sendMessages.slice(-2)) {
+        if (message instanceof Message.OnHasPreviousNextChanged || message instanceof Message.OnAutoplayModeChanged) {
+            m1sWakeMessageGuards.set(message, isCurrent);
+        }
+    }
 }
 // M1S wake state helpers end
 `;
@@ -49,6 +89,11 @@ export function patchWakeState(input, version) {
   const active = '__classPrivateFieldGet(this, _YouTubeApp_activeSession, "f")';
   const messages = `new Message.NowPlaying(AID, m1sWakeState), new Message.OnStateChange(AID, m1sWakeState), new Message.OnHasPreviousNextChanged(AID, ${player}.getNavInfo())`;
   const queueWake = `m1sQueueWakeMessages(sendMessages, m1sWakeState, () => session === ${active}, AID, ${player}.getNavInfo());`;
+  const registeredRead = `                    if (m1sRegisteredWake) {
+                        const m1sWakeState`;
+  const guardedRegisteredRead = `                    if (m1sRegisteredWake) {
+                        m1sGuardQueuedNavigation(sendMessages, ${player}, () => session === ${active});
+                        const m1sWakeState`;
   const originalSend = `    if (sendMessages.length > 0) {
         session.sendMessage(sendMessages)`;
   const guardedSend = `    const m1sCurrentMessages = sendMessages.filter(message => {
@@ -66,6 +111,7 @@ export function patchWakeState(input, version) {
     source = source.replace(pattern, snapshotHelper);
     // Upgrade an already-installed initial wake patch without stacking wrappers.
     source = source.replaceAll(`sendMessages.push(${messages});`, queueWake);
+    if (source.includes(registeredRead)) replaceOnce(registeredRead, guardedRegisteredRead);
     if (source.includes(originalSend)) replaceOnce(originalSend, guardedSend);
     if (!source.includes(guardedSend) || source.split(queueWake).length !== 3) throw new Error('Wake state final guard target mismatch');
     return source;
@@ -88,6 +134,7 @@ export function patchWakeState(input, version) {
                             ${queueWake}
                         }
                     }`);
+  replaceOnce(registeredRead, guardedRegisteredRead);
   replaceOnce(originalSend, guardedSend);
   return snapshotHelper + source;
 }

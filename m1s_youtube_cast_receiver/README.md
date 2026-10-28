@@ -1,3 +1,20 @@
+## 1.0.32 — Selectia YouTube si piesa urmatoare
+
+Trateaza selectia explicita VIDEO_SELECTED transmisa prin updatePlaylist,
+inclusiv identificatorul din eventDetails. Nu transforma selectia in STOP.
+Cand YouTube omite lista pentru o piesa deja prezenta in acelasi playlist,
+pastreaza coada cunoscuta si urmatoarea piesa.
+
+Telefonul primeste imediat navigatia si recomandarea autoplay dupa rezolvarea
+cautarii, precum si dupa revenirea din fundal. Nu se anunta o lista goala in
+locul unei cautari in curs. Logurile INFO [M1S-CAST] disting comanda primita
+de coada rezultata, fara datele private din payload.
+
+Cazurile reproduse sunt testate cu App/Player/Playlist reale pentru YT si YTM.
+Verificarea pe telefon/hub ramane necesara. Bufferele, sesiunea PCM, decodarea
+si sincronizarea sunt pastrate. Pastrati integrarea **0.37.21** si actualizati
+numai add-on-ul la **1.0.32**, publicand sursele si reconstruind imaginea.
+
 ## 1.0.31 — Trecere mai rapida si selectie manuala YouTube
 
 Pregateste informatiile urmatoarei surse inainte de final, prin extragere fara
@@ -6,7 +23,7 @@ normala daca pregatirea esueaza. Nu se adauga buffere sau offseturi de timp.
 
 Corecteaza selectiile explicite fara playlist ori cu index numeric 0/omis si
 elimina asteptarea recomandarilor inainte de pornirea piesei selectate. INFO
-[CONTROL] arata comenzile relevante si schimbarile de sesiune, fara tokenuri
+[M1S-CAST] arata comenzile relevante si schimbarile de sesiune, fara tokenuri
 sau payload-uri integrale, daca redarea revine din nou pe telefon.
 
 Dupa deblocarea telefonului, YouTube primeste din nou starea completa cu piesa,

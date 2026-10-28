@@ -14,7 +14,7 @@ const patched = patchControlTrace(appSource, '2.1.0');
 assert.equal(patchControlTrace(patched, '2.1.0'), patched, 'patch must be idempotent');
 const laterMarker = '// A later dependency patch may prepend its own marker\n';
 assert.equal(patchControlTrace(laterMarker + patched, '2.1.0'), laterMarker + patched);
-assert.equal(patched.split('// M1S control lifecycle trace v1').length - 1, 1);
+assert.equal(patched.split('// M1S control lifecycle trace v2').length - 1, 1);
 assert.throws(() => patchControlTrace(appSource, '2.2.0'), /requires.*2\.1\.0/);
 assert.throws(() => patchControlTrace('export default class Unknown {}', '2.1.0'), /target mismatch/);
 new Function(patched.replace(/^import .*;\r?\n/gm, '').replace('export default YouTubeApp;', ''));
@@ -83,8 +83,14 @@ const incoming = (name, payload = {}, session = yt) => api.incoming(app, new Mes
 const secrets = { ctt: 'ctt-private-secret', cpn: 'cpn-private-secret',
   url: 'https://private.test/audio?token=url-private-secret', pairingCode: 'pairing-payload-secret' };
 await incoming('setPlaylist', { videoIds: 'AAAAAAAAAAA,BBBBBBBBBBB,CCCCCCCCCCC', videoId: 'AAAAAAAAAAA',
-  listId: 'safe-list', currentIndex: '0', currentTime: '0', ...secrets });
+  listId: 'safe-list', currentIndex: '0', currentTime: '0',
+  eventDetails: JSON.stringify({ eventType: 'PLAYLIST_SET', videoId: 'AAAAAAAAAAA', user: 'private-user-secret' }), ...secrets });
 assert.equal(player.queue.current.id, 'AAAAAAAAAAA');
+const selectedQueue = traces.find(line => line.includes('event=queue_updated') && line.includes('command=setPlaylist'));
+assert.ok(selectedQueue?.includes('eventType=PLAYLIST_SET eventVideoId=AAAAAAAAAAA videoIdsCount=3 selectedInVideoIds=true'));
+assert.ok(selectedQueue.includes('currentVideoId=AAAAAAAAAAA nextVideoId=BBBBBBBBBBB'));
+assert.ok(selectedQueue.includes('queueLength=3 queueUpdating=false'));
+assert.ok(selectedQueue.includes('hasNext=true'));
 await incoming('next');
 assert.equal(player.queue.current.id, 'BBBBBBBBBBB');
 await incoming('seekTo', { newTime: '10' });
@@ -101,7 +107,7 @@ for (const command of ['setPlaylist', 'updatePlaylist', 'play', 'pause', 'stopVi
 assert.ok(traces.some(line => line.includes('currentIndex=0 currentIndexType=string')));
 assert.ok(traces.some(line => line.includes('command=seekTo') && line.includes('currentTime=10')));
 const semantic = traces.filter(line => line.includes('[M1S-CAST]'));
-for (const secret of Object.values(secrets).concat(['pairing-secret', 'another-pairing-secret'])) {
+for (const secret of Object.values(secrets).concat(['pairing-secret', 'another-pairing-secret', 'private-user-secret'])) {
   assert.ok(!semantic.some(line => line.includes(secret)), `trace must exclude ${secret}`);
 }
 
@@ -133,6 +139,11 @@ const invalid = traces.filter(line => line.includes('event=incoming')).at(-1);
 assert.ok(invalid.includes('allowed=false'));
 assert.ok(invalid.includes('videoId=<invalid> listId=<non-scalar> currentIndex=0 currentIndexType=number currentTime=<invalid>'));
 assert.ok(!invalid.includes('secret'));
+assert.doesNotThrow(() => api.trace(logger, player, 'malformed', {
+  eventVideoId: 'https://private.test/?token=event-video-secret', nextVideoId: 'invalid-video-secret',
+  autoplayVideoId: 'https://private.test/?token=autoplay-secret'
+}));
+assert.ok(traces.at(-1).includes('eventVideoId=<invalid> nextVideoId=<invalid> autoplayVideoId=<invalid>'));
 
 const failure = new Error('https://private.test/?token=error-message-secret');
 failure.name = 'RPCError';

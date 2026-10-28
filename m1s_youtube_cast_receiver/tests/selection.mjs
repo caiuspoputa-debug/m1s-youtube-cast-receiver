@@ -123,13 +123,26 @@ const selections = [
   { name: 'empty playlist ID', data: { listId: '', videoIds: newId, videoId: newId, currentIndex: '0' }, index: 0 },
   { name: 'standalone video only', data: { videoId: newId }, index: 0 },
   { name: 'numeric zero', data: { listId: 'new-list', videoIds: newId, videoId: newId, currentIndex: 0 }, index: 0 },
-  { name: 'inferred explicit queue index', data: { listId: 'new-list', videoIds: `${oldId},${newId},${thirdId}`, videoId: newId }, index: 1 }
+  { name: 'inferred explicit queue index', data: { listId: 'new-list', videoIds: `${oldId},${newId},${thirdId}`, videoId: newId }, index: 1 },
+  { name: 'selected ID in event details', data: { listId: 'new-list', videoIds: `${newId},${thirdId}`,
+    eventDetails: JSON.stringify({ eventType: 'VIDEO_SELECTED', videoId: newId }) }, index: 0 },
+  { name: 'update selection keeps predecessor in queue', type: 'updatePlaylist', data: {
+    listId: 'new-list', videoIds: `${oldId},${newId},${thirdId}`, videoId: newId, currentIndex: 1,
+    eventDetails: JSON.stringify({ eventType: 'VIDEO_SELECTED', videoId: newId }) }, index: 1 },
+  { name: 'update selection replaces old queue', type: 'updatePlaylist', data: {
+    listId: 'new-list', videoIds: `${newId},${thirdId}`,
+    eventDetails: JSON.stringify({ eventType: 'VIDEO_SELECTED', videoId: newId }) }, index: 0 },
+  { name: 'explicit event wins stale top-level video', type: 'updatePlaylist', data: {
+    listId: 'new-list', videoIds: `${oldId},${newId},${thirdId}`, videoId: oldId, currentIndex: 0,
+    eventDetails: JSON.stringify({ eventType: 'VIDEO_SELECTED', videoId: newId }) }, index: 1 },
+  { name: 'update selected event without playlist ID', type: 'updatePlaylist', data: {
+    eventDetails: JSON.stringify({ eventType: 'VIDEO_SELECTED', videoId: newId }) }, index: 0 }
 ];
 for (const client of ['YT', 'YTMUSIC']) {
   for (const test of selections) {
     const f = await fixture(client);
     const original = structuredClone(test.data);
-    await f.incoming('setPlaylist', test.data);
+    await f.incoming(test.type || 'setPlaylist', test.data);
     assert.equal(f.player.queue.current.id, newId, `${client}: ${test.name}`);
     assert.equal(f.player.queue.current.context.index, test.index);
     assert.equal(f.player.currentVideoId, newId);
@@ -146,6 +159,9 @@ for (const client of ['YT', 'YTMUSIC']) {
   for (const test of [
     { name: 'empty clear', type: 'setPlaylist', data: {} },
     { name: 'explicit clear overrides selection', type: 'setPlaylist', data: {
+      listId: 'new-list', videoIds: newId, videoId: newId, currentIndex: '0',
+      eventDetails: JSON.stringify({ eventType: 'PLAYLIST_CLEARED' }) } },
+    { name: 'update explicit clear overrides selection', type: 'updatePlaylist', data: {
       listId: 'new-list', videoIds: newId, videoId: newId, currentIndex: '0',
       eventDetails: JSON.stringify({ eventType: 'PLAYLIST_CLEARED' }) } },
     { name: 'current video removed', type: 'updatePlaylist', data: { listId: 'original-list', videoIds: newId } },
@@ -166,6 +182,51 @@ for (const client of ['YT', 'YTMUSIC']) {
   assert.equal(unchanged.session.active, true);
   assert.deepEqual(unchanged.services, []);
   await unchanged.close();
+
+  for (const eventType of ['VIDEO_ADDED', 'VIDEO_REMOVED', null]) {
+    const refresh = await fixture(client);
+    const generation = refresh.session.currentTrackGeneration;
+    await refresh.incoming('updatePlaylist', { listId: 'original-list', videoIds: `${oldId},${newId}`,
+      videoId: newId, currentIndex: 1,
+      ...(eventType ? { eventDetails: JSON.stringify({ eventType, videoId: newId }) } : {}) });
+    assert.equal(refresh.player.queue.current.id, oldId, 'ordinary queue edits must not select payload.videoId');
+    assert.equal(refresh.player.currentVideoId, oldId);
+    assert.equal(refresh.session.currentTrackGeneration, generation, 'ordinary queue edits must not restart audio');
+    assert.equal(refresh.session.active, true);
+    assert.deepEqual(refresh.services, []);
+    await refresh.close();
+  }
+
+  const known = await fixture(client);
+  const knownIds = [oldId, newId, thirdId, ...Array.from({ length: 98 }, (_, i) => `d${String(i).padStart(10, '0')}`)];
+  await known.incoming('updatePlaylist', { listId: 'original-list', videoIds: knownIds.join(',') });
+  await known.incoming('updatePlaylist', { listId: 'original-list',
+    eventDetails: JSON.stringify({ eventType: 'VIDEO_SELECTED', videoId: newId }) });
+  assert.equal(known.player.queue.videoIds.length, 101, 'omitted same-list IDs retain the known queue');
+  assert.equal(known.player.queue.current.id, newId);
+  assert.equal(known.player.queue.current.context.index, 1);
+  assert.equal(known.player.queue.getState().next.id, thirdId);
+  assert.equal(known.player.getNavInfo().hasNext, true);
+  await known.incoming('next', {});
+  assert.equal(known.player.currentVideoId, thirdId, 'actual App Next uses the retained successor');
+  assert.equal(known.session.active, true);
+  assert.deepEqual(known.services, []);
+  await known.close();
+
+  for (const test of [
+    { listId: 'different-list' },
+    { listId: 'original-list' },
+    { listId: 'original-list', videoIds: '' }
+  ]) {
+    const standalone = await fixture(client);
+    await standalone.incoming('updatePlaylist', { ...test,
+      eventDetails: JSON.stringify({ eventType: 'VIDEO_SELECTED', videoId: newId }) });
+    assert.deepEqual(standalone.player.queue.videoIds, [newId], 'do not inherit an unrelated or explicitly empty queue');
+    assert.equal(standalone.player.currentVideoId, newId);
+    assert.equal(standalone.session.active, true);
+    assert.deepEqual(standalone.services, []);
+    await standalone.close();
+  }
 }
 
 // Remote recommendations are advisory. The actual incoming App path must
@@ -261,7 +322,7 @@ for (const client of ['YT', 'YTMUSIC']) {
   assert.deepEqual(failed.services, []);
   await failed.close();
 
-  for (const ignoresAbort of [false, true]) {
+  for (const selectionType of ['setPlaylist', 'updatePlaylist']) for (const ignoresAbort of [false, true]) {
     const rapid = await fixture(client);
     await rapid.player.queue.setAutoplayMode(Constants.AUTOPLAY_MODES.ENABLED);
     const deferred = new Map();
@@ -271,14 +332,16 @@ for (const client of ['YT', 'YTMUSIC']) {
         rapid.player.queue.requestHandler.getPreviousNextVideos(target);
     }
     const fourthId = 'ddddddddddd', nextId = 'eeeeeeeeeee';
-    const b = rapid.begin('setPlaylist', { videoId: newId });
+    const select = id => rapid.begin(selectionType, selectionType === 'setPlaylist' ? { videoId: id } : {
+      listId: 'new-list', videoIds: id, eventDetails: JSON.stringify({ eventType: 'VIDEO_SELECTED', videoId: id }) });
+    const b = select(newId);
     await flush(); rapid.firstPcm(); await flush();
-    const c = rapid.begin('setPlaylist', { videoId: thirdId });
+    const c = select(thirdId);
     await flush(); rapid.firstPcm(); await flush();
     deferred.get(newId)({ previous: null, next: { id: oldId } });
     await b;
     assert.equal(rapid.player.queue.isUpdating, true, 'stale B finally must retain C controller');
-    const d = rapid.begin('setPlaylist', { videoId: fourthId });
+    const d = select(fourthId);
     await flush(); rapid.firstPcm(); await flush();
     deferred.get(fourthId)({ previous: null, next: { id: nextId } });
     await d;
@@ -299,11 +362,12 @@ for (const client of ['YT', 'YTMUSIC']) {
 // unexpected dependency cannot silently produce a partially patched install.
 const installed = fs.readFileSync(new URL('../node_modules/yt-cast-receiver/dist/lib/app/Playlist.js', import.meta.url), 'utf8')
   .replace(/\r\n/g, '\n');
-const marker = '// M1S selection payload patch v2: standalone video, zero index and navigation identity';
+const marker = '// M1S selection payload patch v3: explicit selection events and navigation identity';
 assert.ok(installed.startsWith(`${marker}\n`));
 const pristine = installed.replace(`${marker}\n${normalizeM1sSelection.toString()}\n`, '')
-  .replace('        const data = normalizeM1sSelection(message);\n        if (!data.listId && !data.__m1sSelectedVideo) {',
+  .replace('        const data = normalizeM1sSelection(message, this.getState());\n        if (!data.listId && !data.__m1sSelectedVideo) {',
     '        const data = message.payload;\n        if (!data.listId) {')
+  .replace("        if (message.name === 'setPlaylist' || data.__m1sSelectedVideo) {", "        if (message.name === 'setPlaylist') {")
   .replace('            if (data.__m1sSelectedVideo) {', '            if (data.currentIndex && data.videoId) {')
   .replace(`            const m1sNavigationVideo = __classPrivateFieldGet(this, _Playlist_current, "f");
             const m1sNavigationController = new AbortController();
@@ -321,12 +385,16 @@ assert.ok(!pristine.includes('normalizeM1sSelection'));
 assert.ok(!pristine.includes('m1sNavigation'));
 const installedApp = fs.readFileSync(new URL('../node_modules/yt-cast-receiver/dist/lib/app/YouTubeApp.js', import.meta.url), 'utf8')
   .replace(/\r\n/g, '\n');
-const appMarker = '// M1S explicit selection starts before remote navigation';
+const appMarker = '// M1S explicit selection dispatch v2: setPlaylist and VIDEO_SELECTED';
 assert.ok(installedApp.includes(`${appMarker}\n`));
 // Other independent postinstall diagnostics may prepend their own helper.
-const expectedApp = `${appMarker}\n` + installedApp.replace(`${appMarker}\n`, '');
-let pristineApp = installedApp.replace(`${appMarker}\n`, '');
-const dispatchStart = pristineApp.indexOf('            const m1sSelectionToken =');
+const expectedApp = `${appMarker}\n${normalizeM1sSelection.toString()}\n`
+  + installedApp.replace(`${appMarker}\n`, '').replace(`${normalizeM1sSelection.toString()}\n`, '');
+// A separately installed diagnostics patch may add a trace inside the
+// reconstructed dispatch span. Its own clean-install tests cover that trace.
+const selectionAppSource = value => value.replace(/^            m1sTraceCastControl\([^\n]*'queue_updated',[^\n]*\);\n/gm, '');
+let pristineApp = installedApp.replace(`${appMarker}\n`, '').replace(`${normalizeM1sSelection.toString()}\n`, '');
+const dispatchStart = pristineApp.indexOf('            const m1sPlaySelection =');
 const dispatchEnd = pristineApp.indexOf('            const stateAfterSet =', dispatchStart);
 assert.ok(dispatchStart >= 0 && dispatchEnd > dispatchStart);
 pristineApp = pristineApp.slice(0, dispatchStart)
@@ -338,7 +406,10 @@ assert.ok(playStart >= 0 && playEnd > playStart);
 pristineApp = pristineApp.slice(0, playStart)
   + '                    await __classPrivateFieldGet(this, _YouTubeApp_player, "f").play(currentVideo, parseInt(payload.currentTime, 10) || 0, AID);\n'
   + pristineApp.slice(playEnd + '                    }\n'.length);
+pristineApp = pristineApp.replace('            if (m1sPlaySelection && (stateBeforeSet.current?.id !== stateAfterSet.current?.id ||',
+  "            if (message.name === 'setPlaylist' && (stateBeforeSet.current?.id !== stateAfterSet.current?.id ||");
 assert.ok(!pristineApp.includes('m1sEarlyPlay'));
+assert.ok(!pristineApp.includes('normalizeM1sSelection'));
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'm1s-selection-patch-'));
 try {
   const target = path.join(temporary, 'dist/lib/app/Playlist.js');
@@ -350,10 +421,10 @@ try {
   fs.writeFileSync(appTarget, pristineApp);
   assert.equal(patchSelection(temporary), true);
   assert.equal(fs.readFileSync(target, 'utf8'), installed);
-  assert.equal(fs.readFileSync(appTarget, 'utf8'), expectedApp);
+  assert.equal(selectionAppSource(fs.readFileSync(appTarget, 'utf8')), selectionAppSource(expectedApp));
   assert.equal(patchSelection(temporary), false);
   assert.equal(fs.readFileSync(target, 'utf8'), installed);
-  assert.equal(fs.readFileSync(appTarget, 'utf8'), expectedApp);
+  assert.equal(selectionAppSource(fs.readFileSync(appTarget, 'utf8')), selectionAppSource(expectedApp));
   const legacy = '// M1S selection payload patch: standalone video and numeric zero\n'
     + normalizeM1sSelection.toString() + '\n' + pristine
       .replace('        const data = message.payload;\n        if (!data.listId) {',
@@ -363,6 +434,23 @@ try {
   assert.equal(patchSelection(temporary), true, 'upgrade an already normalized install without duplicate helpers');
   assert.equal(fs.readFileSync(target, 'utf8'), installed);
   assert.equal(patchSelection(temporary), false);
+  const version31Playlist = installed
+    .replace(marker, '// M1S selection payload patch v2: standalone video, zero index and navigation identity')
+    .replace('        const data = normalizeM1sSelection(message, this.getState());', '        const data = normalizeM1sSelection(message);')
+    .replace("        if (message.name === 'setPlaylist' || data.__m1sSelectedVideo) {", "        if (message.name === 'setPlaylist') {");
+  const version31App = '// M1S explicit selection starts before remote navigation\n' + expectedApp
+    .replace(`${appMarker}\n`, '').replace(`${normalizeM1sSelection.toString()}\n`, '')
+    .replace(`            const m1sPlaySelection = message.name === 'setPlaylist'
+                || normalizeM1sSelection(message, stateBeforeSet).__m1sSelectedVideo;\n`, '')
+    .replace('            if (m1sPlaySelection && m1sImmediateCurrent', "            if (message.name === 'setPlaylist' && m1sImmediateCurrent")
+    .replace('            if (m1sPlaySelection && (stateBeforeSet.current?.id !== stateAfterSet.current?.id ||',
+      "            if (message.name === 'setPlaylist' && (stateBeforeSet.current?.id !== stateAfterSet.current?.id ||");
+  fs.writeFileSync(target, version31Playlist);
+  fs.writeFileSync(appTarget, version31App);
+  assert.equal(patchSelection(temporary), true, 'upgrade .31 dispatch and guarded navigation together');
+  assert.equal(fs.readFileSync(target, 'utf8'), installed);
+  assert.equal(selectionAppSource(fs.readFileSync(appTarget, 'utf8')), selectionAppSource(expectedApp));
+  assert.equal(patchSelection(temporary), false);
   fs.writeFileSync(packageFile, JSON.stringify({ version: '2.1.1' }));
   assert.throws(() => patchSelection(temporary), /exact yt-cast-receiver 2.1.0/);
   assert.equal(fs.readFileSync(target, 'utf8'), installed);
@@ -371,15 +459,21 @@ try {
   fs.writeFileSync(target, unexpected);
   assert.throws(() => patchSelection(temporary), /refusing partial selection patch/);
   assert.equal(fs.readFileSync(target, 'utf8'), unexpected);
-  assert.equal(fs.readFileSync(appTarget, 'utf8'), expectedApp);
+  assert.equal(selectionAppSource(fs.readFileSync(appTarget, 'utf8')), selectionAppSource(expectedApp));
   fs.writeFileSync(target, pristine);
   const unexpectedApp = pristineApp.replace('queue.updateByMessage(message, client)', 'queue.changedDependencyAPI(message, client)');
   fs.writeFileSync(appTarget, unexpectedApp);
   assert.throws(() => patchSelection(temporary), /refusing partial selection patch/);
   assert.equal(fs.readFileSync(target, 'utf8'), pristine, 'App drift must not leave Playlist half patched');
   assert.equal(fs.readFileSync(appTarget, 'utf8'), unexpectedApp);
+  const brokenVersion31 = version31Playlist.replace('if (m1sNavigationController.signal.aborted', 'if (changedGuardShape');
+  fs.writeFileSync(target, brokenVersion31);
+  fs.writeFileSync(appTarget, version31App);
+  assert.throws(() => patchSelection(temporary), /refusing partial selection patch/);
+  assert.equal(fs.readFileSync(target, 'utf8'), brokenVersion31, 'validate existing .31 navigation guards during upgrade');
+  assert.equal(fs.readFileSync(appTarget, 'utf8'), version31App, 'failed .31 upgrade leaves both files intact');
 } finally {
   assert.ok(path.resolve(temporary).startsWith(path.resolve(os.tmpdir()) + path.sep));
   fs.rmSync(temporary, { recursive: true, force: true });
 }
-console.log('PASS: actual App + pinned Playlist + M1S/session select standalone/indexed videos through YT/YTM without HA Stop; immediate Play while remote navigation waits, superseded lookup and navigation failure safe; explicit clear/removal preserved; patch pinned, idempotent and atomic across both files.');
+console.log('PASS: actual App/M1S/session support explicit setPlaylist and VIDEO_SELECTED updates through YT/YTM, retain same-list 101-track queue and Next; ordinary edits never Play; clear/removal and rapid cancellation preserved; clean/.31 patch installs pinned, idempotent and atomic.');

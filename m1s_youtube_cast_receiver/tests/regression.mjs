@@ -41,6 +41,7 @@ eof=p.handleContinuousSourceEof('a',1);for(let i=0;i<4;i++)await Promise.resolve
 // Reconnection publishes state but never alters playback status/transport.
 p.ownsTarget=true;p.startedAt=Date.now()-10000;p.connectedSenderIds.add('phone');let updates=0;
 p.queue.current={id:p.currentVideoId};
+p.queue.getState=()=>({current:p.queue.current,next:null});
 p.getState=async()=>({status:p.status,queue:{current:{id:p.currentVideoId}},position:10,duration:100,volume:{level:5,muted:false}});
 p.emit=(event,snapshot)=>{assert.equal(event,'state');assert.equal(snapshot.previous,null);updates++;};
 await p.publishProgress();assert.equal(updates,1);p.status=Constants.PLAYER_STATUSES.LOADING;await p.publishProgress();assert.equal(updates,1);p.status=Constants.PLAYER_STATUSES.PLAYING;p.connectedSenderIds.clear();await p.publishProgress();assert.equal(updates,1);

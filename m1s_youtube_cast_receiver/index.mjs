@@ -1013,6 +1013,7 @@ class M1SPlayer extends Player {
     if (this.progressPublishing || !this.continuousSession?.active || !this.ownsTarget
         || this.sessionRelinquished || !this.connectedSenderIds.size
         || (this.startedAt === null && !this.paused)
+        || this.queue.isUpdating
         || this.status === Constants.PLAYER_STATUSES.LOADING) return;
     this.progressPublishing = true;
     try {
@@ -1020,20 +1021,43 @@ class M1SPlayer extends Player {
       const generation = this.playGeneration;
       const videoId = this.currentVideoId;
       const current = await this.getState();
+      const currentQueue = this.queue.getState();
       if (session !== this.continuousSession || generation !== this.playGeneration
           || !videoId || videoId !== this.currentVideoId || current.queue.current?.id !== videoId
           || this.queue.current?.id !== videoId
           || !session.active || !this.connectedSenderIds.size || !this.ownsTarget
-          || this.sessionRelinquished
+          || this.sessionRelinquished || this.queue.isUpdating
           || ![Constants.PLAYER_STATUSES.PLAYING, Constants.PLAYER_STATUSES.PAUSED].includes(this.status)
           || current.status !== this.status
           || ![Constants.PLAYER_STATUSES.PLAYING, Constants.PLAYER_STATUSES.PAUSED].includes(current.status)) return;
       // Both YT and YTM can miss a track change while the phone is locked.
       // Include its identity as well as its clock when the app resumes.
+      // Navigation can finish while getState is awaiting volume/position.
+      // Read its ready result now rather than announcing the earlier null next.
+      current.queue = currentQueue;
+      this.navigationPublicationPending = false;
       this.emit('state', { current, previous: null });
     }
     catch (error) { log('debug', `[${this.definition.name}] Progress publication failed.`, error?.message); }
-    finally { this.progressPublishing = false; }
+    finally {
+      this.progressPublishing = false;
+      if (this.navigationPublicationPending) {
+        this.navigationPublicationPending = false;
+        void this.publishProgress();
+      }
+    }
+  }
+
+  publishNavigationState() {
+    // Queue events fire after the asynchronous previous/next lookup completes.
+    // Coalesce a ready notification behind an in-flight state read without a
+    // timer or changes to playback, then let the normal freshness guards apply.
+    if (this.queue.isUpdating) return Promise.resolve();
+    if (this.progressPublishing) {
+      this.navigationPublicationPending = true;
+      return Promise.resolve();
+    }
+    return this.publishProgress();
   }
 
   startProgressUpdates() {
@@ -1775,7 +1799,7 @@ class M1SPlayer extends Player {
       if (navigation) void navigation.then(async () => {
         if (stillCommitted()) {
           void this.refreshNextSourcePreparation();
-          await this.notifyExternalStateChange();
+          await this.publishNavigationState();
         }
       }).catch(error => log('debug', `[${this.definition.name}] Natural-next state refresh failed.`, error?.message || String(error)));
       log('info', `[${this.definition.name}] Natural successor committed at the existing PCM/transport boundary.`, `session=${session.serial} track=${successorGeneration}`);
@@ -2080,7 +2104,10 @@ function installQueueLogging(player) {
   });
   for (const event of ['videoSelected', 'videoAdded', 'videoRemoved', 'playlistSet',
     'playlistAdded', 'playlistCleared', 'playlistUpdated', 'autoplayModeChange']) {
-    queue.on(event, () => void player.refreshNextSourcePreparation());
+    queue.on(event, () => {
+      void player.refreshNextSourcePreparation();
+      void player.publishNavigationState();
+    });
   }
 }
 

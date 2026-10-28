@@ -224,4 +224,80 @@ assert.equal(volumeServices[0][2].volume_level, p.volume.level / 100);
 assert.ok(p.volume.level > beforeVolume);
 assert.equal(plays, audioBeforeVolume.plays); assert.equal(stops, audioBeforeVolume.stops);
 
+// A known sender waking at an autoplay boundary needs the actual successor ID,
+// not just a visible Next button, without waiting for the periodic snapshot.
+p.queue.setRequestHandler({
+  reset() {},
+  async getPreviousNextVideosAbortable(target) {
+    return { previous: null, next: { id: 'CCCCCCCCCCC', client: target.client, context: { index: 1 } } };
+  }
+});
+await p.queue.updateByMessage(new Message(62, 'setPlaylist', {
+  listId: 'wake-list', videoId: 'BBBBBBBBBBB', videoIds: 'BBBBBBBBBBB', currentIndex: 0
+}), yt.client);
+await p.queue.setAutoplayMode(Constants.AUTOPLAY_MODES.ENABLED);
+const wakeAudioBefore = { plays, stops, session: p.continuousSession };
+const nextWake = await api.connected(app, sender, yt);
+assert.equal(nextWake.find(message => message instanceof Message.OnHasPreviousNextChanged)?.payload.hasNext, true);
+assert.equal(nextWake.find(message => message instanceof Message.AutoplayUpNext)?.payload.videoId, 'CCCCCCCCCCC');
+assert.equal(nextWake.find(message => message instanceof Message.OnAutoplayModeChanged)?.payload.autoplayMode,
+  Constants.AUTOPLAY_MODES.ENABLED);
+assert.deepEqual({ plays, stops, session: p.continuousSession }, wakeAudioBefore);
+
+// getState snapshots the queue before awaiting its position/volume reads. If
+// recommendation lookup completes during that wait, the wake must announce the
+// newly ready candidate together with the newly ready Next flag.
+await p.queue.setAutoplayMode(Constants.AUTOPLAY_MODES.DISABLED);
+const beforeNavigationReady = await actualGetState();
+assert.equal(beforeNavigationReady.queue.autoplay, null);
+let finishWakeRead;
+p.getState = () => new Promise(resolve => { finishWakeRead = resolve; });
+const waitingForNavigation = api.connected(app, sender, yt);
+await settle(() => Boolean(finishWakeRead));
+await p.queue.setAutoplayMode(Constants.AUTOPLAY_MODES.ENABLED);
+assert.equal(p.queue.autoplay.id, 'CCCCCCCCCCC');
+finishWakeRead(beforeNavigationReady);
+const navigationReadyWake = await waitingForNavigation;
+p.getState = actualGetState;
+assert.equal(navigationReadyWake.find(message => message instanceof Message.OnHasPreviousNextChanged)?.payload.hasNext, true);
+assert.equal(navigationReadyWake.find(message => message instanceof Message.AutoplayUpNext)?.payload.videoId,
+  'CCCCCCCCCCC', 'a ready recommendation must replace the queue captured before the asynchronous state read');
+
+// A queue-only change may also occur after the helper has returned, without a
+// new Play generation. The final network handoff must discard that stale
+// recommendation while retaining the live track/clock/volume wake reply.
+for (const withConnectionEvent of [true, false]) {
+  await p.queue.setAutoplayMode(Constants.AUTOPLAY_MODES.ENABLED);
+  let navigationMutation, firstWakeRead = true;
+  const beforeNavigationChange = await actualGetState();
+  p.getState = () => {
+    if (!firstWakeRead) return actualGetState();
+    firstWakeRead = false;
+    return Promise.resolve(beforeNavigationChange).then(value => {
+      const mutate = () => { navigationMutation = p.queue.setAutoplayMode(Constants.AUTOPLAY_MODES.DISABLED); };
+      // The explicit connection event has one additional async handler handoff.
+      queueMicrotask(() => queueMicrotask(() => withConnectionEvent ? queueMicrotask(mutate) : mutate()));
+      return value;
+    });
+  };
+  yt.sent.length = 0;
+  const wakeAID = withConnectionEvent ? 70 : 71;
+  await api.incoming(app, new Message(wakeAID, 'loungeStatus', { devices,
+    ...(withConnectionEvent ? { connectionEventDetails: JSON.stringify({ deviceId: sender.id }) } : {}) }), yt);
+  p.getState = actualGetState;
+  assert.ok(navigationMutation, 'navigation mutation must run at the outer incoming handoff');
+  await navigationMutation;
+  const sentWake = yt.sent.filter(message => message.AID === wakeAID);
+  assert.ok(sentWake.some(message => message instanceof Message.NowPlaying),
+    'a queue-only change must preserve the valid current track reply');
+  assert.ok(!sentWake.some(message => message instanceof Message.AutoplayUpNext
+    && message.payload.videoId === 'CCCCCCCCCCC'), 'stale ready candidate must not cross the final network handoff');
+  assert.ok(!sentWake.some(message => message instanceof Message.OnHasPreviousNextChanged && message.payload.hasNext),
+    'legacy lounge navigation must not send its former Next flag after the candidate changed');
+  assert.ok(!sentWake.some(message => message instanceof Message.OnAutoplayModeChanged
+    && message.payload.autoplayMode === Constants.AUTOPLAY_MODES.ENABLED),
+  'legacy lounge navigation must not send its former autoplay mode after it changed');
+  assert.deepEqual({ plays, stops, session: p.continuousSession }, wakeAudioBefore);
+}
+
 console.log('PASS: actual App/M1S restore track, cursor and volume after locked-phone wake; real Play/Stop races at both async handoffs and stale/live-queue reads are guarded; phone volume still reaches HA without restarting audio.');

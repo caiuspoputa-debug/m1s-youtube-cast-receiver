@@ -40,11 +40,11 @@ nav.autoplayMode=Constants.AUTOPLAY_MODES.DISABLED;assert.equal(nav.getNavInfo()
 // Execute the dependency's setPlaylist replacement branch: valid next must not stop;
 // an empty replacement still stops. This is separate from Player.play's internal stop.
 const app=fs.readFileSync(new URL('../node_modules/yt-cast-receiver/dist/lib/app/YouTubeApp.js',import.meta.url),'utf8');
-const start=app.indexOf("            if (message.name === 'setPlaylist' && (stateBeforeSet.current?.id");
+const start=app.indexOf("            if (m1sPlaySelection && (stateBeforeSet.current?.id");
 const end=app.indexOf("            else if (message.name === 'updatePlaylist'",start);
 let stops=0,plays=0;
 const player={status:1,stop:async()=>stops++,play:async()=>plays++};
-const branch=new Function('__classPrivateFieldGet','_YouTubeApp_player','PLAYER_STATUSES','return async function(stateAfterSet){const message={name:"setPlaylist"};const stateBeforeSet={current:{id:"old"}};const payload={currentTime:0};const AID=1;const m1sEarlyPlay=null;'+app.slice(start,end)+'}')( ()=>player,0,Constants.PLAYER_STATUSES);
+const branch=new Function('__classPrivateFieldGet','_YouTubeApp_player','PLAYER_STATUSES','return async function(stateAfterSet){const message={name:"setPlaylist"};const m1sPlaySelection=true;const stateBeforeSet={current:{id:"old"}};const payload={currentTime:0};const AID=1;const m1sEarlyPlay=null;'+app.slice(start,end)+'}')( ()=>player,0,Constants.PLAYER_STATUSES);
 await branch({current:{id:'new'}});assert.equal(stops,0);assert.equal(plays,1);
 await branch({current:null});assert.equal(stops,1);
 console.log('PASS: explicit TV/WEB autoplay parsing, no arbitrary recommendations; actual resolver WEB fallback; actual Playlist autoplay/Next capability; actual setPlaylist branch preserves playback and handles clear.');

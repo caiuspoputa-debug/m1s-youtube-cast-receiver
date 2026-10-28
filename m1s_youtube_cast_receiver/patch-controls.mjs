@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-const marker = '// M1S control lifecycle trace v1';
+const oldMarker = '// M1S control lifecycle trace v1';
+const marker = '// M1S control lifecycle trace v2';
 const helper = `${marker}
 function m1sTraceCastControl(logger, player, event, fields) {
     try {
@@ -11,7 +12,7 @@ function m1sTraceCastControl(logger, player, event, fields) {
         if (!['string', 'number', 'boolean'].includes(typeof value)) return '<non-scalar>';
         const text = String(value).replace(/[\\u0000-\\u001f\\u007f]/g, ' ');
         if (/https?:\\/\\//i.test(text)) return '<invalid>';
-        if (key === 'videoId' && !/^[A-Za-z0-9_-]{11}$/.test(text)) return '<invalid>';
+        if (/videoId$/i.test(key) && !/^[A-Za-z0-9_-]{11}$/.test(text)) return '<invalid>';
         if (key === 'listId' && !/^[A-Za-z0-9_-]{1,160}$/.test(text)) return '<invalid>';
         if (['AID', 'currentIndex', 'currentTime'].includes(key)
             && (text.trim() === '' || !Number.isFinite(Number(text)))) return '<invalid>';
@@ -24,6 +25,31 @@ function m1sTraceCastControl(logger, player, event, fields) {
         // Diagnostics must never change a control or session decision.
     }
 }
+function m1sTracePlaylistFields(payload, player) {
+    try {
+        let event = payload?.eventDetails;
+        if (typeof event === 'string') {
+            try { event = JSON.parse(event); } catch (_) { event = null; }
+        }
+        const ids = typeof payload?.videoIds === 'string' ? payload.videoIds.split(',').filter(Boolean) : null;
+        const selected = event?.eventType === 'VIDEO_SELECTED' ? event?.videoId || payload?.videoId : payload?.videoId;
+        const state = player?.queue?.getState();
+        const nav = player?.getNavInfo();
+        return {
+            eventType: typeof event?.eventType === 'string' && /^[A-Z_]{1,40}$/.test(event.eventType) ? event.eventType : undefined,
+            eventVideoId: event?.videoId,
+            videoIdsCount: ids?.length,
+            selectedInVideoIds: ids && typeof selected === 'string' ? ids.includes(selected) : undefined,
+            currentVideoId: state?.current?.id,
+            nextVideoId: state?.next?.id,
+            autoplayVideoId: state?.autoplay?.id,
+            queueLength: state?.videoIds?.length,
+            queueUpdating: player?.queue?.isUpdating,
+            autoplayMode: player?.queue?.autoplayMode,
+            hasNext: nav?.hasNext
+        };
+    } catch (_) { return {}; }
+}
 `;
 
 /** Add diagnostics to pinned control paths without changing their decisions. */
@@ -31,9 +57,15 @@ export function patchControlTrace(input, version) {
   if (version !== '2.1.0') throw new Error(`Cast control trace requires yt-cast-receiver 2.1.0; got ${version}`);
   let source = input.replace(/\r\n/g, '\n');
   if (source.includes(marker)) {
-    const pattern = /^\/\/ M1S control lifecycle trace v1\nfunction m1sTraceCastControl\([\s\S]*?\n}\n/m;
+    const pattern = /^\/\/ M1S control lifecycle trace v2\nfunction m1sTraceCastControl\([\s\S]*?\n}\nfunction m1sTracePlaylistFields\([\s\S]*?\n}\n/m;
     if (source.split(marker).length !== 2 || !pattern.test(source)) throw new Error('Cast control trace helper target mismatch');
     return source.replace(pattern, helper);
+  }
+  const alreadyTraced = source.includes(oldMarker);
+  if (alreadyTraced) {
+    const pattern = /^\/\/ M1S control lifecycle trace v1\nfunction m1sTraceCastControl\([\s\S]*?\n}\n/m;
+    if (source.split(oldMarker).length !== 2 || !pattern.test(source)) throw new Error('Cast control trace upgrade target mismatch');
+    source = source.replace(pattern, '');
   }
   const replaceOnce = (needle, replacement) => {
     if (source.split(needle).length !== 2) throw new Error(`Cast control trace target mismatch: ${needle.slice(0, 90)}`);
@@ -44,11 +76,25 @@ export function patchControlTrace(input, version) {
   const active = '__classPrivateFieldGet(this, _YouTubeApp_activeSession, "f")';
   const trace = (event, fields) => `m1sTraceCastControl(${logger}, ${player}, '${event}', { ${fields} });`;
 
+  if (alreadyTraced) {
+    const oldIncomingEnd = "currentTime: name === 'seekTo' ? payload?.newTime : payload?.currentTime });";
+    replaceOnce(oldIncomingEnd, "currentTime: name === 'seekTo' ? payload?.newTime : payload?.currentTime, ...m1sTracePlaylistFields(payload, " + player + ') });');
+  }
+
   const incoming = '    const sendMessages = [];\n    switch (name) {';
-  replaceOnce(incoming, `    if (['setPlaylist', 'updatePlaylist', 'play', 'pause', 'stopVideo', 'next', 'previous', 'seekTo'].includes(name)) {
-        ${trace('incoming', "command: name, AID, clientKey: client?.key, activeClientKey: " + active + "?.client?.key, allowed: m1sCanControl, videoId: payload?.videoId, listId: payload?.listId, currentIndex: payload?.currentIndex, currentIndexType: typeof payload?.currentIndex, currentTime: name === 'seekTo' ? payload?.newTime : payload?.currentTime")}
+  if (!alreadyTraced) replaceOnce(incoming, `    if (['setPlaylist', 'updatePlaylist', 'play', 'pause', 'stopVideo', 'next', 'previous', 'seekTo'].includes(name)) {
+        ${trace('incoming', "command: name, AID, clientKey: client?.key, activeClientKey: " + active + "?.client?.key, allowed: m1sCanControl, videoId: payload?.videoId, listId: payload?.listId, currentIndex: payload?.currentIndex, currentIndexType: typeof payload?.currentIndex, currentTime: name === 'seekTo' ? payload?.newTime : payload?.currentTime, ...m1sTracePlaylistFields(payload, " + player + ')')}
     }
 ${incoming}`);
+
+  const queueUpdated = `            if (this.m1sPlaylistSelectionToken !== m1sSelectionToken
+                || (${player}.queue.current?.id || null) !== m1sSelectedId) return;`;
+  // This token check occurs once before dispatch and again inside the Play
+  // completion guard. Only the first, column-aligned one is the queue boundary.
+  replaceOnce(queueUpdated, `            ${trace('queue_updated', `command: name, AID, clientKey: client?.key, activeClientKey: ${active}?.client?.key, obsolete: this.m1sPlaylistSelectionToken !== m1sSelectionToken, ...m1sTracePlaylistFields(payload, ${player})`)}
+${queueUpdated}`);
+
+  if (alreadyTraced) return helper + source;
 
   const launch = '        if (pairingCode && session) {';
   replaceOnce(launch, `        ${trace('dial_launch', `theme, clientKey: session?.client?.key, activeClientKey: ${active}?.client?.key`)}
