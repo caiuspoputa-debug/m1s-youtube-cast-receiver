@@ -1,24 +1,37 @@
-1.0.26 validation
+1.0.27 validation
 
-npm test: all passed. New source-timing tests cover stderr marker split across
-chunks, separate stage measurements with a simulated clock, spawn/close events,
-one-time first-byte/PCM observations, unknown stages and byte-identical piping.
-Existing playback, seek, transport, YTM, volume, naming and LAN tests passed.
-node --check index.mjs: passed.
-After removing only new diagnostic import, argument spread, observer setup and
-firstPcm call, index.mjs matches 1.0.25 exactly. Existing audio pipe, ffmpeg args,
-format choice, section seek, awaits, timers, buffers and playback controls remain.
-Docker copies the new diagnostic module before runtime starts.
+Confirmed user failure: yt-dlp exits1, ffmpeg183, Errno6 No such device or address
+/dev/stderr, repeated three times then continuous PCM timeout. The diagnostic
+added in 1.0.26 caused the failure.
+Fix: precreated regular temporary file instead of reopening a subprocess fd;
+literal M1S_TIMING_BEFORE_DOWNLOAD! instead of a metadata-field-shaped template.
+Node pipe streams cannot be reopened via fd paths; yt-dlp print-to-file opens
+its destination via Python open(...,'a'). Word-only/colon marker templates are
+interpreted as fields by actual yt-dlp and produce NA, so ! is required here.
 
-yt-dlp adds its documented before_dl print-to-file hook to /dev/stderr, plus
-explicit --no-simulate so the diagnostic does not suppress downloading.
-Reference: https://github.com/yt-dlp/yt-dlp#verbosity-and-simulation-options
-No stdout text, second extraction, cache or changed decoder is introduced.
-No live yt-dlp/YouTube test, physical device test or Docker build performed here.
-Host runtime is Linux; the diagnostic hook writes /dev/stderr in the add-on.
-Measured stage boundaries reflect Node receipt times. For section seeks,
-ytdlp's internal ffmpeg/network work is included before its first stdout byte;
-this does not isolate pure network latency or physical speaker output.
+Validation:
+- npm test: all passed, including regression suite and regular-file polling,
+  partial markers, one-time measurements, cleanup, unknown stages and unchanged
+  audio data through the observed pipe.
+- Real yt-dlp 2026.10.26 CLI tested with an ffmpeg-generated Opus/webm fixture
+  served only on localhost. Baseline vs corrected marker both exit0, stderr
+  empty, all 2817 stdout bytes equal original fixture. Literal marker confirmed.
+  Negative controls word-only and colon markers produce NA, verifying the fix.
+- Actual production helper integration passed: Node spawn pipes actual yt-dlp
+  into the original ffmpeg decoder argv. Both exited0; 2817 audio bytes
+  unchanged, 25600 PCM bytes decoded, all seven timing stages logged, marker
+  file and directory removed on close. Local-only fixture, no YouTube requests.
+- node --check index.mjs: passed.
+- Excluding the additional diagnostic wiring, index.mjs equals functional
+  1.0.25. Existing downloader format/output/section arguments, ffmpeg audio args,
+  PCM loop, waits, buffers and synchronization code are unchanged.
 
-Install: replace sources and rebuild/reinstall image, confirm 1.0.26.
-Start playback, seek once and provide logs including TIMING/PIPELINE.
+No live YouTube/phone/hub test or Linux Docker image build performed here.
+Diagnostic marker uses a regular file and polling approx50ms; filesystem/event
+scheduling can delay observation further. download_to_first_byte includes
+network and yt-dlp internal processing (including its internal ffmpeg on seeks),
+not pure network latency. Physical speaker output is not measured.
+
+Publish/update sources and rebuild image, confirm1.0.27. No downgrade needed.
+Preserve options/data and integration. Existing TIMING logs and new PIPELINE logs
+remain available for a playback+seek test after upgrade.

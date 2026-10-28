@@ -7,7 +7,7 @@ import YouTubeCastReceiver, { Constants, Player, DefaultPlaylistRequestHandler }
 
 import { createQueueHandler } from './queue-handler.mjs';
 import { detectDiscoveryNetwork } from './discovery-network.mjs';
-import { SOURCE_TIMING_ARGS, observeSourceTiming } from './source-timing.mjs';
+import { createSourceTimingFile, observeSourceTiming } from './source-timing.mjs';
 import {
   castFriendlyName,
   detectedReceiverName,
@@ -760,9 +760,10 @@ class ContinuousAudioSession {
   }
 
   _spawnTrackProcesses(videoId, position) {
+    const diagnosticFile = createSourceTimingFile(log);
     const ytdlpArgs = [
       '--no-playlist', '--quiet', '--no-warnings', '--js-runtimes', 'node',
-      ...SOURCE_TIMING_ARGS,
+      ...diagnosticFile.args,
       '-f', 'bestaudio[ext=webm]/bestaudio', '-o', '-'
     ];
     if (position > 0.5) ytdlpArgs.push('--download-sections', `*${position}-`);
@@ -779,15 +780,15 @@ class ContinuousAudioSession {
     this.sourceChildren.add(ytdlp);
     this.sourceChildren.add(ffmpeg);
     ytdlp.stdout.pipe(ffmpeg.stdin);
-    return { ytdlp, ffmpeg };
+    return { ytdlp, ffmpeg, diagnosticFile };
   }
 
   async _decodeTrackAttempt(videoId, position, generation) {
     const diagnosticSourceAt = Date.now();
     let diagnosticFirstDecoded = false;
     log('info', `[TIMING][SOURCE] [${this.definition.name}] session=${this.serial} track=${generation} video=${videoId} position=${position}s source_start_at=${diagnosticSourceAt}`);
-    const { ytdlp, ffmpeg } = this._spawnTrackProcesses(videoId, position);
-    const diagnosticPipeline = observeSourceTiming({ytdlp, ffmpeg, startedAt: diagnosticSourceAt,
+    const { ytdlp, ffmpeg, diagnosticFile } = this._spawnTrackProcesses(videoId, position);
+    const diagnosticPipeline = observeSourceTiming({ytdlp, ffmpeg, diagnosticFile, startedAt: diagnosticSourceAt,
       label: `[${this.definition.name}] session=${this.serial} track=${generation} attempt_at=${diagnosticSourceAt}`, log});
     let ytdlpErr = '';
     let ffmpegErr = '';

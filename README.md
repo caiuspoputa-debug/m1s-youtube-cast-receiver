@@ -1,3 +1,26 @@
+## 1.0.27 — Reparatie diagnostic care bloca descarcarea
+
+Corecteaza regresia confirmata in logul utilizatorului pentru 1.0.26:
+yt-dlp esua cu Errno 6 la deschiderea /dev/stderr, apoi nu exista PCM.
+Markerul before_dl este acum scris intr-un fisier temporar normal, unic pentru
+fiecare incercare, creat inaintea lansarii sursei si eliminat la terminare.
+Markerul literal contine !, evitand interpretarea drept camp de metadata.
+Nu se mai redeschide niciun descriptor de proces pentru diagnostic.
+
+Pastreaza masuratorile suplimentare PIPELINE: pregatirea yt-dlp, primele date
+audio si primul PCM ffmpeg. Markerul este observat prin polling la 50 ms;
+valorile sunt aproximative la acea rezolutie. Daca fisierul temporar nu poate fi
+creat, sursa ruleaza fara marker, iar etapele indisponibile apar unknown.
+Testele confirma curatarea la inchidere si date audio neschimbate.
+A fost rulat si yt-dlp real pe un fisier Opus/webm servit local, comparand iesirea
+byte cu byte cu varianta fara marker. Acest test nu inlocuieste validarea pe hub.
+
+Versiunea nu este o simpla redenumire a 1.0.25: pastreaza diagnosticul separat,
+cu mecanismul reparat. Parametrii audio, ffmpeg, bufferele si sincronizarea sunt
+pastrate, precum si volumul fin, numele si descoperirea LAN automata.
+Publica sursele si reconstruieste/actualizeaza imaginea; confirma 1.0.27.
+Nu este necesar downgrade sau actualizare a integrarii Aqara.
+
 ## 1.0.26 — Timpi separati yt-dlp, date audio si ffmpeg
 
 Adauga [TIMING][PIPELINE] pentru fiecare incercare, corelata prin session,
