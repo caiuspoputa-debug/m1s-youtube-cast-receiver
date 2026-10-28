@@ -32,6 +32,7 @@ COPY friendly-name-settings.mjs /app/friendly-name-settings.mjs
 COPY migrate-friendly-name-options.mjs /app/migrate-friendly-name-options.mjs
 COPY receiver-discovery.mjs /app/receiver-discovery.mjs
 COPY discovery-network.mjs /app/discovery-network.mjs
+COPY source-timing.mjs /app/source-timing.mjs
 COPY run.sh /run.sh
 RUN chmod a+x /run.sh
 

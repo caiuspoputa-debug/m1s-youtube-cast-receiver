@@ -1,3 +1,30 @@
+## 1.0.26 — Timpi separati yt-dlp, date audio si ffmpeg
+
+Adauga [TIMING][PIPELINE] pentru fiecare incercare, corelata prin session,
+track si attempt_at. La nivel info se afiseaza:
+- ytdlp_spawn_ms / ffmpeg_spawn_ms: lansarea proceselor.
+- ytdlp_before_download_ms: de la pornirea sursei pana la hook-ul yt-dlp
+  before_dl, dupa extragere si selectia formatului, inaintea descarcarii.
+- first_audio_pipe_byte_ms: primele date audio pe stdout-ul yt-dlp.
+- download_to_first_byte_ms: intervalul before_dl -> primele date pe pipe.
+- first_pcm_ms / pipe_to_pcm_ms: primul PCM si intervalul date audio -> PCM.
+- ytdlp_close_ms / ffmpeg_close_ms, cod/signal: terminare normala sau anulare.
+Valorile sunt milisecunde. Etapele necunoscute sunt marcate unknown.
+Nu se logheaza URL-uri semnate, tokenuri sau continut audio.
+
+La derulare yt-dlp poate folosi intern ffmpeg pentru download-sections;
+acest timp ramane in download_to_first_byte_ms. Acesta nu este o masuratoare
+pura a retelei, ci timpul pana la prima iesire a downloaderului, incluzand
+conectare, descarcare si procesare interna. pipe_to_pcm_ms masoara procesul
+ffmpeg exterior existent. Markerul stderr este observat la receptia in Node.
+Nu se ruleaza o a doua extragere si nu se schimba formatul sau comenzile audio.
+Optiunile yt-dlp adaugate sunt numai --no-simulate si --print-to-file before_dl
+cu destinatia /dev/stderr; stdout ramane exclusiv audio.
+
+Redarea, sincronizarea, bufferele, volumul fin, numele si descoperirea LAN sunt
+pastrate. Reconstruieste/reinstaleaza imaginea si confirma 1.0.26.
+Porneste o piesa, deruleaza o data si trimite logul. Nu este necesar debug.
+
 ## 1.0.25 — Masuratori pornire si derulare
 
 Adauga numai diagnostic la nivel info, cu prefix [TIMING].

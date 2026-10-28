@@ -1,23 +1,24 @@
-1.0.25 validation
+1.0.26 validation
 
-npm test: all passed, including emission of SEEK first_pcm/completed measurements
-through the existing actual pinned Player transition tests. Existing playback,
-continuous transport, YTM, metadata, fine volume, naming and LAN tests pass.
+npm test: all passed. New source-timing tests cover stderr marker split across
+chunks, separate stage measurements with a simulated clock, spawn/close events,
+one-time first-byte/PCM observations, unknown stages and byte-identical piping.
+Existing playback, seek, transport, YTM, volume, naming and LAN tests passed.
 node --check index.mjs: passed.
-Comparison against 1.0.24: after removing added diagnostic logs/local timing
-variables and the first-decoded logging guard, all nonblank code lines match.
-No added awaits, sleeps, buffering changes or playback control changes.
+After removing only new diagnostic import, argument spread, observer setup and
+firstPcm call, index.mjs matches 1.0.25 exactly. Existing audio pipe, ffmpeg args,
+format choice, section seek, awaits, timers, buffers and playback controls remain.
+Docker copies the new diagnostic module before runtime starts.
 
-Logs use existing info logging. They measure internal player stages, not phone
-UI gesture time or physical speaker audio. Startup serial and lead are existing
-transport observations/estimates. PCM first_output_at is the existing output
-loop timestamp; observed_ms records when the awaited result is handled.
-Epoch *_at values are milliseconds and *_ms fields are elapsed milliseconds.
-Stages can overlap (decoding starts before HA play_media completes), so do not
-sum every cumulative stage. Correlate session and track identifiers.
-Logging has normal execution overhead; no per-chunk continuous logging is added.
-No physical device test or Docker build performed here.
+yt-dlp adds its documented before_dl print-to-file hook to /dev/stderr, plus
+explicit --no-simulate so the diagnostic does not suppress downloading.
+Reference: https://github.com/yt-dlp/yt-dlp#verbosity-and-simulation-options
+No stdout text, second extraction, cache or changed decoder is introduced.
+No live yt-dlp/YouTube test, physical device test or Docker build performed here.
+Host runtime is Linux; the diagnostic hook writes /dev/stderr in the add-on.
+Measured stage boundaries reflect Node receipt times. For section seeks,
+ytdlp's internal ffmpeg/network work is included before its first stdout byte;
+this does not isolate pure network latency or physical speaker output.
 
-Replace sources and rebuild/reinstall image, confirm 1.0.25.
-Start casting and seek once, then provide the add-on log including [TIMING].
-No packet capture or debug level is required.
+Install: replace sources and rebuild/reinstall image, confirm 1.0.26.
+Start playback, seek once and provide logs including TIMING/PIPELINE.

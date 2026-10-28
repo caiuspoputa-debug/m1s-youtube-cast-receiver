@@ -7,6 +7,7 @@ import YouTubeCastReceiver, { Constants, Player, DefaultPlaylistRequestHandler }
 
 import { createQueueHandler } from './queue-handler.mjs';
 import { detectDiscoveryNetwork } from './discovery-network.mjs';
+import { SOURCE_TIMING_ARGS, observeSourceTiming } from './source-timing.mjs';
 import {
   castFriendlyName,
   detectedReceiverName,
@@ -761,6 +762,7 @@ class ContinuousAudioSession {
   _spawnTrackProcesses(videoId, position) {
     const ytdlpArgs = [
       '--no-playlist', '--quiet', '--no-warnings', '--js-runtimes', 'node',
+      ...SOURCE_TIMING_ARGS,
       '-f', 'bestaudio[ext=webm]/bestaudio', '-o', '-'
     ];
     if (position > 0.5) ytdlpArgs.push('--download-sections', `*${position}-`);
@@ -785,6 +787,8 @@ class ContinuousAudioSession {
     let diagnosticFirstDecoded = false;
     log('info', `[TIMING][SOURCE] [${this.definition.name}] session=${this.serial} track=${generation} video=${videoId} position=${position}s source_start_at=${diagnosticSourceAt}`);
     const { ytdlp, ffmpeg } = this._spawnTrackProcesses(videoId, position);
+    const diagnosticPipeline = observeSourceTiming({ytdlp, ffmpeg, startedAt: diagnosticSourceAt,
+      label: `[${this.definition.name}] session=${this.serial} track=${generation} attempt_at=${diagnosticSourceAt}`, log});
     let ytdlpErr = '';
     let ffmpegErr = '';
     ytdlp.stderr.on('data', (chunk) => { if (ytdlpErr.length < 65536) ytdlpErr += chunk.toString(); });
@@ -800,6 +804,7 @@ class ContinuousAudioSession {
     try {
       for await (const data of ffmpeg.stdout) {
         if (!diagnosticFirstDecoded) {
+          diagnosticPipeline.firstPcm();
           diagnosticFirstDecoded = true;
           log('info', `[TIMING][SOURCE] [${this.definition.name}] session=${this.serial} track=${generation} first_decoded_ms=${Date.now() - diagnosticSourceAt}`);
         }
