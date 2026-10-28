@@ -1,38 +1,41 @@
-1.0.28 validation
+1.0.29 validation
 
-npm test: full final suite passed, including new cancelled-source,
-prepared-source-cache and natural-tail tests. node --check index.mjs passed.
-Cancellation tests run actual production session/pinnedPlayer paths:
-superseded/unwatched starts, pause/stop, concurrent resume+seek, replacements,
-no false STOPPED/PLAYING/transport teardown, preserved real current-source timeout.
-Natural append does not cancel old pending starts or discard predecessor PCM.
+Full final npm test suite passed, including natural-handoff.mjs using actual
+pinned Player, Playlist/SenderQueueHandler and ContinuousAudioSession lifecycle.
+node --check index.mjs passed.
 
-Prepared source tests: video identity, protected unique files, partialJSON,
-unchanged URLs/formats/headers, removal of old section offsets, absolute seek,
-TTL/LRU/signed expiry, identity-safe invalidation and filesystem failure fallback.
-Real yt-dlp2026.10.26 + realffmpeg localhostOpus fixture test passed:
-- Fresh seek2 captured actual full before_dl infoJSON.
-- Reused seek1 succeeds with all extractors disabled, proving extraction bypass.
-- Required custom HTTP header retained.
-- Actual before_dl.section_start=1, not old2+new1.
-- Cachedseek1 PCM exactly matches independent freshseek1 PCM byte-for-byte.
-- Both processes exit0 with no errors. No liveYouTube/hub speed claim made.
-Existing section-seek preroll semantics are unchanged, not newly corrected.
+New handoff tests verify:
+- predecessor queue/current/title/duration/clock retained during old tail output;
+- staged successor first PCM plus unchanged2500ms lead determines commit;
+- labelled aaabbbc FIFO retained, no early LOADING/STOPPED, no HA service calls;
+- short successor EOF replay after its commit advances to following track;
+- manual Play/Seek/Pause/Stop invalidation, stale ownership callbacks and tokens;
+- public Player.seek with slow HA response cannot change its target A into B;
+- autoplay and updatePlaylist retain mutable library context;
+- playlist-only edits during staging cannot announce C over B's audio;
+- genuine failed staged source drains predecessor and stops only owned session;
+- captured source display metadata supplies new title/artist/duration without
+  blocking on a separate network metadata request.
 
-Natural-tail test exercises real decodeassembly/backpressure/finalpartialperiod,
-sourceEOF, append and outputloop: all407680 expectedbytes retained in order,
-no source children killed. Supplied naturalboundary has clean decoderEOF and
-append; it does not establish physical tail loss. No speculative tail fix applied.
+Existing natural-tail test preserves407680bytes through real production PCM
+assembly/backpressure/sourceEOF/append/output. Additional localhost realOpus
+sources through yt-dlp2026.10.26+ffmpeg preserve all506240 padded outputbytes
+against independent direct decode baselines, no killed sourceprocesses/errors.
+This real-source check validates the unchanged lower pipeline; the new handoff
+controller is tested with actual pinned library classes and controlled PCM/clock.
+No physical phone/hub audio recording or Docker image build performed here.
 
-Compared to1.0.27, exact invariants preserved: PCM constants/queuesizes, pacing,
-transportlead calculation, waitForTransportStarted, naturalEOF handling and volume.
-Original ffmpeg decoder arguments, download-sections and output-format choice
-remain. Changes are cancellation lifecycle and reuse of preparedsource metadata.
-Cachedfailure consumes existing retry path; no new delay/timeout/buffer is added.
-Cache is bounded8entries/15minutes or signed URL expiry minus30sec; no persistent
-cache, no new audio buffer, no signedURL/token output. Process files cleaned.
-No physical phone/hub test or Docker image build performed here.
+Compared with1.0.28, audio invariants are exact: PCM constants and buffer sizes,
+chunk pacing, outputloop, source _spawn/_decode path and prepared-source reuse,
+transportlead measurement and waitForTransportStarted. No duration offsets or
+new end-of-track timer are introduced; existing PCM timestamps/lead reused.
+Changes are natural-transition control and source-display metadata getter only,
+plus tests/release metadata/docs. Existing manual requests supersede staging.
+No per-song HA restart, source ownership/group restore mapping change or new
+buffering. Reordered candidate already staged is committed as audible identity;
+no fabricated queue index when sender removed it.
 
-Publishsources, rebuild/updateimage, confirm1.0.28. Preserve integration/options.
-Logs show prepared_source=reused on warmseeks; a genuinely failedcurrent source
-can still timeout. Audible end-of-track truncation remains unconfirmed/unresolved.
+This fixes confirmed premature Cast advancement/races and protects tail delivery.
+Original subjective audible cutoff was not physically reproduced in this host;
+confirm continuous ending on user's hub after update without assuming a live test.
+Publish sources, rebuild/update image, confirm1.0.29. Preserve options/integration.

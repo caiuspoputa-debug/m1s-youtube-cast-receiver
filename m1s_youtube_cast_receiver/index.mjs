@@ -970,6 +970,7 @@ class M1SPlayer extends Player {
     this.playGeneration = 0;
     this.continuousSession = null;
     this.naturalAdvanceInProgress = false;
+    this.naturalAdvanceBoundary = null;
     this.skipNextReplacementStop = false;
     this.pendingPlay = null;
     this.playRequestEpoch = 0;
@@ -1472,6 +1473,7 @@ class M1SPlayer extends Player {
   }
 
   async play(video, position, AID) {
+    this.invalidateNaturalHandoff();
     if (!this.musicSenderActive) return this.playSelected(video, position, AID);
     const requestedPosition = Math.max(0, Number(position) || 0);
     const previous = this.pendingPlay;
@@ -1527,6 +1529,7 @@ class M1SPlayer extends Player {
   }
 
   async playSelected(video, position, AID) {
+    this.invalidateNaturalHandoff();
     // The queue may already point at the successor. Never send its ID with
     // the previous track's end position/duration in the LOADING snapshot.
     this.basePosition = Math.max(0, Number(position) || 0);
@@ -1588,50 +1591,153 @@ class M1SPlayer extends Player {
     log('info', `[TIMING][PLAY] [${this.definition.name}] video=${video?.id} ready_to_dispatch_ms=${Date.now() - diagnosticPlayAt}`);
 
     if (this.continuousSession?.active && this.ownsTarget) {
-      return this.switchTrackInsideSession(prepared, { append: this.naturalAdvanceInProgress });
+      return this.switchTrackInsideSession(prepared, { append: false });
     }
     return this.startContinuousSession(prepared);
+  }
+
+  invalidateNaturalHandoff() {
+    this.naturalAdvanceBoundary = null;
+    this.naturalAdvanceInProgress = false;
   }
 
   async handleContinuousSourceEof(videoId, sourceGeneration) {
     const session = this.continuousSession;
     if (!session?.active || this.paused || this.sessionRelinquished) return;
-    if (videoId !== this.currentVideoId) return;
-    if (sourceGeneration !== session.currentTrackGeneration) return;
-    if (this.naturalAdvanceInProgress) return;
+    if (videoId !== this.currentVideoId || sourceGeneration !== session.currentTrackGeneration) return;
+    if (this.naturalAdvanceBoundary) return;
 
+    const boundary = Object.freeze({ session, sourceGeneration, videoId, playerGeneration: this.playGeneration });
+    this.naturalAdvanceBoundary = boundary;
     this.naturalAdvanceInProgress = true;
+    let successorGeneration = null;
+    let committedGeneration = null;
+    let successor = null;
+    const valid = () => this.naturalAdvanceBoundary === boundary
+      && this.continuousSession === session && session.active && !this.paused && !this.sessionRelinquished
+      && this.playGeneration === boundary.playerGeneration && this.currentVideoId === videoId
+      && session.currentTrackGeneration === (successorGeneration ?? sourceGeneration);
     try {
-      // Advance immediately at SOURCE EOF so extraction of the next song can run
-      // while the final ~2.5 s of the old track are still queued. doPlay() stays
-      // LOADING until the new track actually reaches the established transport.
-      // Player.next() calls stop() when there is no successor. Never let that
-      // close the transport before the last queued PCM has reached the hubs.
       const deadline = Date.now() + 6000;
-      while (this.queue.isUpdating && Date.now() < deadline) await sleep(50);
-      if (this.continuousSession !== session || !session.active
-          || sourceGeneration !== session.currentTrackGeneration || this.paused) return;
-      if (!(await this.targetStillOwnedByYoutube())) {
+      while (this.queue.isUpdating && Date.now() < deadline) {
+        await sleep(50);
+        if (!valid()) return;
+      }
+      if (!valid()) return;
+      const owned = await this.targetStillOwnedByYoutube();
+      if (!valid()) return;
+      if (!owned) {
         await this.relinquishToExternalSource('Source changed before natural next');
         return;
       }
-      const nextVideo = await this.queue.next();
-      const video = nextVideo || (this.autoplayMode === Constants.AUTOPLAY_MODES.ENABLED
-        ? this.queue.autoplay : null);
-      const advanced = video ? await this.play(video) : false;
-      if (advanced) return;
 
-      log('info', `[${this.definition.name}] Queue/autoplay has no next item; draining final track then stopping.`);
-      const drainedAt = await session.waitTrackOutputDrain(sourceGeneration);
-      const stopAt = drainedAt + Math.max(0, Number(session.transportLeadMs) || 0) + 150;
-      const waitMs = stopAt - Date.now();
+      // Peek only. Advancing the public playlist here would announce the next
+      // song while the predecessor's final PCM is still travelling to the hub.
+      const explicitNext = this.queue.getState().next;
+      const candidate = explicitNext || (this.autoplayMode === Constants.AUTOPLAY_MODES.ENABLED
+        ? this.queue.autoplay : null);
+      if (!candidate) {
+        log('info', `[${this.definition.name}] Queue/autoplay has no next item; draining final track then stopping.`);
+        const drainedAt = await session.waitTrackOutputDrain(sourceGeneration);
+        if (!valid()) return;
+        const stopAt = drainedAt + Math.max(0, Number(session.transportLeadMs) || 0) + 150;
+        const waitMs = stopAt - Date.now();
+        if (waitMs > 0) await sleep(waitMs);
+        if (valid()) await this.stop();
+        return;
+      }
+
+      const id = safeVideoId(candidate.id);
+      if (!id) throw new Error(`Invalid automatic successor id: ${candidate.id}`);
+      successor = Object.freeze({ ...candidate,
+        ...(candidate.context ? { context: Object.freeze({ ...candidate.context }) } : {}) });
+      // Decode early into the SAME FIFO, preserving every predecessor chunk.
+      // No Player.play(), queue mutation, clock reset or HA service call yet.
+      successorGeneration = await session.queueTrack(id, 0, { append: true });
+      if (!valid()) return;
+      log('info', `[${this.definition.name}] Natural successor staged without advancing Cast state.`, `session=${session.serial} track=${successorGeneration}`);
+      const outputAt = await session.waitTrackOutputStart(successorGeneration);
+      if (!valid()) return;
+      const audibleAt = outputAt + Math.max(0, Number(session.transportLeadMs) || 0);
+      const waitMs = audibleAt - Date.now();
       if (waitMs > 0) await sleep(waitMs);
-      if (this.continuousSession === session && session.active
-          && sourceGeneration === session.currentTrackGeneration && !this.paused) await this.stop();
+      if (!valid()) return;
+
+      // Playlist.next changes current synchronously and refreshes navigation
+      // asynchronously. Do not hold the audible handoff on a remote lookup.
+      const committedVideo = { ...successor,
+        ...(successor.context ? { context: { ...successor.context } } : {}) };
+      if (Array.isArray(this.queue.videoIds)) {
+        const index = this.queue.videoIds.indexOf(id);
+        committedVideo.context = { ...committedVideo.context, playlistId: this.queue.id };
+        if (index >= 0) committedVideo.context.index = index;
+        else delete committedVideo.context.index;
+      }
+      let navigation;
+      if (explicitNext && this.queue.current?.id === videoId && this.queue.getState().next?.id === id) {
+        navigation = this.queue.next();
+        navigation.catch(error => log('debug', `[${this.definition.name}] Natural-next navigation refresh failed.`, error?.message || String(error)));
+      } else {
+        // A playlist-only edit cannot change PCM already staged atomically.
+        // Keep its actual audible identity; manual Play/Seek invalidates us.
+        this.queue.setAsCurrent(committedVideo);
+      }
+      committedGeneration = ++this.playGeneration;
+      this.currentVideo = committedVideo;
+      this.currentVideoId = id;
+      const sourceMetadata = typeof preparedSources !== 'undefined' ? preparedSources.displayMetadata(id) || {} : {};
+      this.title = String(successor.title || sourceMetadata.title || `YouTube ${id}`);
+      const artist = successor.artist || sourceMetadata.artist || sourceMetadata.uploader || sourceMetadata.channel;
+      this.artist = typeof artist === 'string' ? artist.trim() || null : null;
+      this.channel = this.musicSenderActive ? 'YouTube Music' : 'YouTube';
+      this.duration = Number(successor.duration || sourceMetadata.duration || 0) || 0;
+      this.basePosition = 0;
+      this.startedAt = audibleAt;
+      this.paused = false;
+      if (this.metadataPublishTimer) clearTimeout(this.metadataPublishTimer);
+      this.metadataPublishTimer = null;
+      const stillCommitted = () => this.continuousSession === session && session.active
+        && this.playGeneration === committedGeneration && this.currentVideoId === id && !this.sessionRelinquished;
+      await this.notifyExternalStateChange(Constants.PLAYER_STATUSES.PLAYING);
+      if (!stillCommitted()) return;
+      this.scheduleHomeAssistantMetadata(id, committedGeneration);
+      setTimeout(() => void this.enrichMetadata(id, committedGeneration), 750);
+      if (navigation) void navigation.then(async () => {
+        if (stillCommitted()) await this.notifyExternalStateChange();
+      }).catch(error => log('debug', `[${this.definition.name}] Natural-next state refresh failed.`, error?.message || String(error)));
+      log('info', `[${this.definition.name}] Natural successor committed at the existing PCM/transport boundary.`, `session=${session.serial} track=${successorGeneration}`);
     } catch (error) {
-      log('error', `[${this.definition.name}] Continuous queue advance failed.`, error?.message || String(error));
+      if (error?.code !== 'M1S_SOURCE_CANCELLED' && valid()) {
+        log('error', `[${this.definition.name}] Continuous queue advance failed.`, error?.message || String(error));
+        // A real source failure remains a failure. Drain the predecessor using
+        // the existing final-track boundary before closing only this session.
+        try {
+          const drainedAt = await session.waitTrackOutputDrain(sourceGeneration);
+          if (!valid()) return;
+          const stopAt = drainedAt + Math.max(0, Number(session.transportLeadMs) || 0) + 150;
+          const waitMs = stopAt - Date.now();
+          if (waitMs > 0) await sleep(waitMs);
+          if (valid()) await this.stop();
+        } catch (drainError) {
+          if (valid()) {
+            log('error', `[${this.definition.name}] Failed natural successor could not drain.`, drainError?.message || String(drainError));
+            await this.stop();
+          }
+        }
+      }
     } finally {
-      this.naturalAdvanceInProgress = false;
+      // A short staged track can finish decoding before its audible handoff.
+      // Release only our own token, then replay that deferred EOF once current.
+      if (this.naturalAdvanceBoundary === boundary) {
+        this.naturalAdvanceBoundary = null;
+        this.naturalAdvanceInProgress = false;
+        if (committedGeneration !== null && this.playGeneration === committedGeneration
+            && this.continuousSession === session && session.active && !this.paused
+            && successorGeneration === session.currentTrackGeneration
+            && session.decodedEofGenerations.has(successorGeneration)) {
+          void this.handleContinuousSourceEof(successor.id, successorGeneration);
+        }
+      }
     }
   }
 
@@ -1642,6 +1748,7 @@ class M1SPlayer extends Player {
   }
 
   async next(AID) {
+    this.invalidateNaturalHandoff();
     if (this.sessionRelinquished || (this.currentVideo && !(await this.targetStillOwnedByYoutube()))) {
       await this.relinquishToExternalSource('Next ignored after external source takeover');
       return false;
@@ -1650,6 +1757,7 @@ class M1SPlayer extends Player {
   }
 
   async previous(AID) {
+    this.invalidateNaturalHandoff();
     if (this.sessionRelinquished || (this.currentVideo && !(await this.targetStillOwnedByYoutube()))) {
       await this.relinquishToExternalSource('Previous ignored after external source takeover');
       return false;
@@ -1659,6 +1767,7 @@ class M1SPlayer extends Player {
 
   async doPause() {
     if (!this.continuousSession?.active) return false;
+    this.invalidateNaturalHandoff();
     if (!(await this.targetStillOwnedByYoutube())) {
       await this.relinquishToExternalSource('Pause ignored because HA is playing another source');
       return false;
@@ -1681,6 +1790,7 @@ class M1SPlayer extends Player {
     // A play+seek burst can finish the seek while the base Player still has
     // PAUSED cached. Its follow-up resume must not queue the same audio twice.
     if (!this.paused && this.startedAt !== null) return true;
+    this.invalidateNaturalHandoff();
     this.paused = false;
     const generation = ++this.playGeneration;
     const session = this.continuousSession;
@@ -1702,6 +1812,7 @@ class M1SPlayer extends Player {
   }
 
   async doStop() {
+    this.invalidateNaturalHandoff();
     if (this.metadataPublishTimer) clearTimeout(this.metadataPublishTimer);
     this.metadataPublishTimer = null;
     this.metadataPublishedGeneration = 0;
@@ -1716,7 +1827,6 @@ class M1SPlayer extends Player {
     this.basePosition = 0;
     this.startedAt = null;
     this.paused = false;
-    this.naturalAdvanceInProgress = false;
     this.continuousSession = null;
 
     if (session) await session.stop();
@@ -1741,10 +1851,18 @@ class M1SPlayer extends Player {
     return stopped;
   }
 
+  async seek(position, AID) {
+    // Cancel before the base Player's asynchronous LOADING notification, not
+    // only when doSeek eventually reaches its Home Assistant ownership check.
+    this.invalidateNaturalHandoff();
+    return super.seek(position, AID);
+  }
+
   async doSeek(position) {
     const diagnosticSeekAt = Date.now();
     log('info', `[TIMING][SEEK] [${this.definition.name}] requested_position=${position}s received_by_player_at=${diagnosticSeekAt}`);
     if (!this.currentVideo || !this.continuousSession?.active) return false;
+    this.invalidateNaturalHandoff();
     if (this.sessionRelinquished || !(await this.targetStillOwnedByYoutube())) {
       await this.relinquishToExternalSource('Seek ignored because HA is playing another source');
       return false;

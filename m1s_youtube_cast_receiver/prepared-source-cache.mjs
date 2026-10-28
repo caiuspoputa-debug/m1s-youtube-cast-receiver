@@ -61,6 +61,22 @@ export class PreparedSourceCache {
     this.entries.clear();
   }
 
+  displayMetadata(videoId) {
+    this._prune();
+    const entry = this.entries.get(String(videoId));
+    if (!entry) return null;
+    try {
+      const info = JSON.parse(entry.serialized);
+      return {
+        title: typeof info.title === 'string' ? info.title : '',
+        artist: typeof info.artist === 'string' ? info.artist : '',
+        uploader: typeof info.uploader === 'string' ? info.uploader : '',
+        channel: typeof info.channel === 'string' ? info.channel : '',
+        duration: Number(info.duration) || 0
+      };
+    } catch (_) { return null; }
+  }
+
   plan(videoId, _position = 0) {
     const id = String(videoId);
     const sourceArgs = [`https://www.youtube.com/watch?v=${encodeURIComponent(id)}`];

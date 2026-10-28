@@ -59,12 +59,8 @@ await q.pause();const r=q.resume();while(!output[4])await Promise.resolve();outp
 assert.equal(q.status,S.PLAYING);assert.equal(queued.length,4);
 assert.ok(timingLogs.some(line=>line.includes('[TIMING][SEEK]') && line.includes('first_pcm_ms=')));
 assert.ok(timingLogs.some(line=>line.includes('[TIMING][SEEK]') && line.includes('completed_ms=')));
-const natural=await setup(Fixed);const n=natural.p;
-n.continuousSession.currentTrackGeneration=1;
-n.queue.next=async()=>({id:'next'});
-await n.handleContinuousSourceEof('a',1);
-assert.deepEqual(natural.states.map(s=>s.status),[S.LOADING,S.PLAYING]);
-assert.equal(n.currentVideoId,'next');assert.equal(n.stops,0);
+// Natural successors now publish only at the PCM handoff; natural-handoff.mjs
+// covers the actual Player + playlist + session path without an early LOADING.
 console.log('PASS: actual pinned Player: fixed replacement sends LOADING/PLAYING with fresh timing; explicit Stop during loading works; play+seek does not start a third decoder; seek and pause/resume preserve transport.');
 const {isMusicSender}=await import('../music-start.mjs');
 assert.equal(isMusicSender([{client:{key:'YTMUSIC'}}],{key:'YT'}),true);

@@ -1,3 +1,30 @@
+## 1.0.29 — Trecere automata legata de limita audio
+
+Separarea pregatirii urmatoarei surse de schimbarea piesei in starea Cast:
+- La EOF al decodorului se alege urmatoarea piesa fara a muta playlist.current.
+- Urmatoarea sursa este decodata din timp prin append in acelasi FIFO, pastrand
+  fiecare chunk ramas din piesa veche. Nu se apeleaza Player.play sau HA Play/Stop
+  pentru aceasta trecere automata.
+- Identitatea, metadata, pozitia si starea Cast se confirma numai dupa prima
+  iesire PCM a piesei noi plus lead-ul de transport deja existent.
+- Comenzile manuale invalideaza imediat trecerea aflata in pregatire, inclusiv
+  inainte de asteptarea raspunsului HA sau a notificarii LOADING din biblioteca.
+- Fiecare trecere are context propriu; un callback vechi nu modifica o sesiune noua.
+- Piesele foarte scurte ajunse la EOF in timpul tranzitiei continua corect.
+- Modificarea listei in timpul pregatirii nu mai poate afisa C peste audio B.
+
+Nu se schimba bufferele, ratele/marimea chunkurilor, ritmul PCM, lead-ul sau
+parametrii sincronizarii, argumentele audio yt-dlp/ffmpeg ori fluxul HA continuu.
+Nu se adauga offseturi de durata sau timere de final bazate pe durata piesei.
+Se pastreaza derularea rapida, anularea corecta, volumul fin, numele si LAN automat.
+
+Testele folosesc Player/Playlist reale din biblioteca si sesiunea PCM, inclusiv
+continut audio etichetat pentru verificarea ordinii si pastrarii integrale a cozii.
+Verificarea cu surse yt-dlp/ffmpeg reale confirma pastrarea byte-urilor audio;
+validarea rezultatului audibil pe hub ramane necesara dupa instalare.
+Publica sursele si reconstruieste/actualizeaza imaginea; confirma 1.0.29.
+Integrarea Aqara, optiunile si datele persistente raman aceleasi.
+
 ## 1.0.28 — Comenzi anulate corect si derulare cu sursa reutilizata
 
 Corecteaza cele doua probleme masurate:

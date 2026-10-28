@@ -33,11 +33,10 @@ p.readTargetPlaybackState=async()=>({mediaId:'http://radio',state:'playing',tran
 // EOF must wait for output drain; a user source switch must invalidate that stop.
 let drainResolve;let stops=0;
 const session={active:true,currentTrackGeneration:1,transportLeadMs:0,waitTrackOutputDrain:()=>new Promise(r=>{drainResolve=r;})};
-p.continuousSession=session;p.currentVideoId='a';p.queue={isUpdating:false,next:async()=>null};p.autoplayMode=Constants.AUTOPLAY_MODES.DISABLED;p.targetStillOwnedByYoutube=async()=>true;p.stop=async()=>{stops++;};
+p.continuousSession=session;p.currentVideoId='a';p.queue={isUpdating:false,getState:()=>({next:null}),next:async()=>null};p.autoplayMode=Constants.AUTOPLAY_MODES.DISABLED;p.targetStillOwnedByYoutube=async()=>true;p.stop=async()=>{stops++;};
 let eof=p.handleContinuousSourceEof('a',1);for(let i=0;i<4;i++)await Promise.resolve();assert.equal(stops,0);assert.ok(drainResolve);drainResolve(Date.now());await eof;assert.equal(stops,1);
 eof=p.handleContinuousSourceEof('a',1);for(let i=0;i<4;i++)await Promise.resolve();session.currentTrackGeneration=2;drainResolve(Date.now());await eof;assert.equal(stops,1);
-// A queued successor stays in the existing session and does not trigger stop.
-session.currentTrackGeneration=3;p.queue.next=async()=>({id:'b'});let plays=0;p.play=async video=>{assert.equal(video.id,'b');plays++;return true;};await p.handleContinuousSourceEof('a',3);assert.equal(plays,1);assert.equal(stops,1);
+// Actual staged-successor PCM and state-boundary behavior is exercised by natural-handoff.mjs.
 // Reconnection publishes state but never alters playback status/transport.
 p.ownsTarget=true;p.startedAt=Date.now()-10000;p.connectedSenderIds.add('phone');let updates=0;p.notifyExternalStateChange=async(...args)=>{assert.equal(args.length,0);updates++;};
 await p.publishProgress();assert.equal(updates,1);p.status=Constants.PLAYER_STATUSES.LOADING;await p.publishProgress();assert.equal(updates,1);p.status=Constants.PLAYER_STATUSES.PLAYING;p.connectedSenderIds.clear();await p.publishProgress();assert.equal(updates,1);

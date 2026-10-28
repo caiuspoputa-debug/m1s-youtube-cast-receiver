@@ -27,8 +27,12 @@ try {
   assert.equal(fresh.capture(), false, 'incomplete JSON cannot poison cache');
   write(fresh, info('different-track'));
   assert.equal(fresh.capture(), false, 'only metadata for the requested video is reusable');
-  write(fresh, info('same-track', {section_start:17, section_end:99, section_title:'old', section_number:2}));
+  write(fresh, info('same-track', {duration:99, artist:'Artist', section_start:17, section_end:99, section_title:'old', section_number:2}));
   assert.equal(fresh.capture(), true);
+  assert.deepEqual(cache.displayMetadata('same-track'), {
+    title:'Track same-track',artist:'Artist',uploader:'',channel:'',duration:99
+  });
+  assert.equal(cache.displayMetadata('missing'),null);
   const reused = plan('same-track', 30);
   assert.equal(reused.reused, true);
   assert.deepEqual(reused.sourceArgs, []);
@@ -45,6 +49,7 @@ try {
   assert.ok(!fs.existsSync(copiedPath));
   assert.equal(plan('same-track', 0).reused, true, 'seeking back to zero reuses the full source');
   now += 1001;
+  assert.equal(cache.displayMetadata('same-track'),null,'expired source metadata is not published');
   assert.equal(plan('same-track', 10).reused, false, 'TTL requires fresh extraction');
 
   const first = plan('identity'); write(first, info('identity')); assert.ok(first.capture());
