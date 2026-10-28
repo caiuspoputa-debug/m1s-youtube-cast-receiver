@@ -1324,6 +1324,14 @@ class M1SPlayer extends Player {
     return false;
   }
 
+  assertCurrentPlay(prepared, session = null) {
+    if (prepared.generation === this.playGeneration && !this.sessionRelinquished && !this.paused
+        && (!session || (this.continuousSession === session && session.active))) return;
+    const error = new Error('play request superseded or stopped');
+    error.code = 'M1S_SOURCE_CANCELLED';
+    throw error;
+  }
+
   async prepareVideo(video, position) {
     const id = safeVideoId(video?.id);
     if (!id) throw new Error(`Invalid YouTube video id: ${video?.id}`);
@@ -1343,12 +1351,14 @@ class M1SPlayer extends Player {
     if (!video?.title || this.title === `YouTube ${id}`) {
       try {
         const quickTitle = await getQuickYouTubeTitle(id);
-        if (generation !== this.playGeneration || id !== this.currentVideoId) return null;
-        this.title = quickTitle || this.title;
+        if (generation === this.playGeneration && id === this.currentVideoId) this.title = quickTitle || this.title;
       } catch (error) {
         log('debug', `[${this.definition.name}] Quick title lookup failed for ${id}; using fallback title.`, error?.message || String(error));
       }
     }
+    // A superseded lookup is cancellation, not a failed play. Returning false
+    // through base Player.play would publish STOPPED for the newer selection.
+    this.assertCurrentPlay({ generation });
     setTimeout(() => void this.enrichMetadata(id, generation), 750);
     return { id, generation, position: this.basePosition };
   }
@@ -1370,16 +1380,20 @@ class M1SPlayer extends Player {
   }
 
   async startContinuousSession(prepared) {
+    this.assertCurrentPlay(prepared);
     const diagnosticStartAt = Date.now();
     log('info', `[TIMING][START] [${this.definition.name}] video=${prepared.id} position=${prepared.position}s transport_prepare_at=${diagnosticStartAt}`);
     this.captureSessionSenderForStart();
     await this.waitForPendingGroupSenderRestore();
+    this.assertCurrentPlay(prepared);
     log('info', `[TIMING][START] [${this.definition.name}] video=${prepared.id} group_restore_done_ms=${Date.now() - diagnosticStartAt}`);
     await this.ensureIndividualReadyForPlayback();
+    this.assertCurrentPlay(prepared);
     log('info', `[TIMING][START] [${this.definition.name}] video=${prepared.id} individual_ready_ms=${Date.now() - diagnosticStartAt}`);
-    if (!(await this.ensureInitialGroupCleanStart())) return false;
+    const groupReady = await this.ensureInitialGroupCleanStart();
+    this.assertCurrentPlay(prepared);
+    if (!groupReady) return false;
     log('info', `[TIMING][START] [${this.definition.name}] video=${prepared.id} group_ready_ms=${Date.now() - diagnosticStartAt}`);
-    if (this.musicSenderActive && (prepared.generation !== this.playGeneration || this.sessionRelinquished)) return false;
 
     const serial = nextStreamSerial();
     const session = new ContinuousAudioSession(this, serial);
@@ -1401,18 +1415,19 @@ class M1SPlayer extends Player {
         }
       });
       log('info', `[TIMING][START] [${this.definition.name}] session=${serial} ha_play_media_ms=${Date.now() - diagnosticHaAt}`);
-      if (this.musicSenderActive && (prepared.generation !== this.playGeneration || this.continuousSession !== session
-          || this.sessionRelinquished)) {
-        await session.stop();
-        return false;
-      }
+      // A newer request may already use this transport while HA replies. Only
+      // clean up an abandoned session, never the transport the newer play owns.
+      if (this.continuousSession !== session) await session.stop();
+      this.assertCurrentPlay(prepared, session);
       this.ownsTarget = true;
       this.sessionRelinquished = false;
       this.startOwnershipMonitor();
 
       const firstPcmAt = await session.waitTrackOutputStart(trackGeneration);
+      this.assertCurrentPlay(prepared, session);
       log('info', `[TIMING][START] [${this.definition.name}] session=${serial} first_pcm_ms=${firstPcmAt - diagnosticStartAt} observed_ms=${Date.now() - diagnosticStartAt}`);
       const transport = await this.waitForTransportStarted(serial);
+      this.assertCurrentPlay(prepared, session);
       log('info', `[TIMING][START] [${this.definition.name}] session=${serial} transport_ready_ms=${Date.now() - diagnosticStartAt} exact_serial=${transport.exact}`);
       let transportAt = transport.at;
       if (transport.exact) {
@@ -1424,7 +1439,7 @@ class M1SPlayer extends Player {
         if (waitMs > 0) await sleep(waitMs);
         log('warn', `[${this.definition.name}] Transport-start serial unavailable; using one-time startup lead fallback.`);
       }
-      if (prepared.generation !== this.playGeneration || this.sessionRelinquished) return false;
+      this.assertCurrentPlay(prepared, session);
       this.startProgressUpdates();
       this.startedAt = transportAt;
       this.basePosition = prepared.position;
@@ -1436,6 +1451,7 @@ class M1SPlayer extends Player {
       // A newer seek/track or an explicit pause/stop owns the session now.
       // Do not close its transport or publish a failure for the old request.
       if (error?.code === 'M1S_SOURCE_CANCELLED') throw error;
+      this.assertCurrentPlay(prepared, session);
       log('info', `[TIMING][START] [${this.definition.name}] session=${serial} failed_after_ms=${Date.now() - diagnosticStartAt} error=${error?.message || String(error)}`);
       log('error', `[${this.definition.name}] Continuous HA session start failed.`, error?.message || String(error));
       await session.stop();
@@ -1449,23 +1465,28 @@ class M1SPlayer extends Player {
   }
 
   async switchTrackInsideSession(prepared, { append = false } = {}) {
+    this.assertCurrentPlay(prepared);
     const session = this.continuousSession;
     if (!session?.active) return this.startContinuousSession(prepared);
-    if (!(await this.targetStillOwnedByYoutube())) {
+    const owned = await this.targetStillOwnedByYoutube();
+    this.assertCurrentPlay(prepared, session);
+    if (!owned) {
       await this.relinquishToExternalSource('track switch ignored because HA is playing another source');
       return false;
     }
 
     const trackGeneration = await session.queueTrack(prepared.id, prepared.position, { append });
+    this.assertCurrentPlay(prepared, session);
     log('info', `[${this.definition.name}] YT/YTM track switched INSIDE continuous transport: ${this.title}`,
       append ? '(natural next)' : '(manual/seek replacement)');
 
     const outputAt = await session.waitTrackOutputStart(trackGeneration);
+    this.assertCurrentPlay(prepared, session);
     const leadMs = Math.max(0, Number(session.transportLeadMs) || 0);
     const audibleAt = outputAt + leadMs;
     const waitMs = audibleAt - Date.now();
     if (waitMs > 0) await sleep(waitMs);
-    if (prepared.generation !== this.playGeneration || this.sessionRelinquished) return false;
+    this.assertCurrentPlay(prepared, session);
     this.startedAt = audibleAt;
     this.basePosition = prepared.position;
     this.scheduleHomeAssistantMetadata(prepared.id, prepared.generation);
@@ -1561,10 +1582,8 @@ class M1SPlayer extends Player {
       log('debug', `[${this.definition.name}] Replacing track inside active Cast session; no intermediate STOPPED.`);
       return true;
     }
-    if (this.musicSenderActive) {
-      this.playRequestEpoch += 1;
-      this.playGeneration += 1;
-    }
+    this.playRequestEpoch += 1;
+    this.playGeneration += 1;
     return super.stop(AID);
   }
 
@@ -1577,6 +1596,7 @@ class M1SPlayer extends Player {
       prepared = await this.prepareVideo(video, position);
       log('info', `[TIMING][PLAY] [${this.definition.name}] video=${video?.id} metadata_prepare_ms=${Date.now() - diagnosticPlayAt}`);
     } catch (error) {
+      if (error?.code === 'M1S_SOURCE_CANCELLED') throw error;
       log('error', `[${this.definition.name}] ${error.message}`);
       return false;
     }
@@ -1587,6 +1607,7 @@ class M1SPlayer extends Player {
     // the Group). Always finish the targeted restore before applying the new
     // Group command.
     await this.waitForPendingGroupSenderRestore();
+    this.assertCurrentPlay(prepared);
 
     log('info', `[TIMING][PLAY] [${this.definition.name}] video=${video?.id} ready_to_dispatch_ms=${Date.now() - diagnosticPlayAt}`);
 

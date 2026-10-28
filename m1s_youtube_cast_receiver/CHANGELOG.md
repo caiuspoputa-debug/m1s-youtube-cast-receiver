@@ -1,3 +1,24 @@
+## 1.0.30 — Selectia manuala nu mai primeste STOP de la o cerere veche
+
+Corecteaza un defect reprodus cu Player-ul real: doua selectii suprapuse pot
+termina pregatirea in alta ordine. Cererea veche publica STOPPED pentru piesa
+noua, desi transportul audio este inca activ. Acest raspuns poate determina
+aplicatia sa revina la redarea pe telefon.
+
+O cerere depasita se anuleaza acum la terminarea asteptarilor pentru titlu,
+pregatire HA, primul PCM si confirmarea transportului. Nu mai publica stari
+pentru piesa noua si nu inchide transportul folosit de aceasta. Stop explicit
+anuleaza pregatirea si pentru YouTube obisnuit. Erorile reale ale cererii curente
+continua sa fie raportate normal.
+
+Bufferele, decodarea, comenzile yt-dlp/ffmpeg, ritmul PCM, lead-ul si sincronizarea
+sunt identice cu 1.0.29. Se pastreaza arhitectura cu un singur flux HA continuu.
+
+IMPORTANT: aceasta versiune remediaza selectia manuala. Taierea audibila a
+finalului urmata de pauza NU este confirmata ca rezolvata. Investigatia acesteia
+continua cu logurile existente ale integrarii HA, fara compensari de durata.
+Publica sursele si reconstruieste/actualizeaza imaginea; confirma 1.0.30.
+
 ## 1.0.29 — Trecere automata legata de limita audio
 
 Separarea pregatirii urmatoarei surse de schimbarea piesei in starea Cast:

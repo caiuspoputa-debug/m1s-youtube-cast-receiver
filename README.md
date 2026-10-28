@@ -1,3 +1,16 @@
+## 1.0.30 — Corectie pentru selectia manuala a piesei
+
+O cerere veche de selectare a piesei putea publica STOPPED pentru piesa noua,
+desi fluxul catre hub ramanea activ. Cererile depasite se anuleaza acum fara sa
+modifice starea sau transportul noii selectii. Include teste cu Player-ul real
+pentru titluri/raspunsuri HA intarziate, asteptarea PCM si Stop explicit.
+
+Bufferele, decodarea, ritmul PCM, lead-ul transportului si sincronizarea nu sunt
+modificate. Taierea audibila a finalului urmata de pauza ramane in investigatie;
+aceasta versiune nu este prezentata drept remediere confirmata a acelui simptom.
+
+Publica sursele si reconstruieste/actualizeaza imaginea; confirma 1.0.30.
+
 ## 1.0.29 — Trecere automata legata de limita audio
 
 Separarea pregatirii urmatoarei surse de schimbarea piesei in starea Cast:

@@ -1,41 +1,36 @@
-1.0.29 validation
+1.0.30 validation
 
-Full final npm test suite passed, including natural-handoff.mjs using actual
-pinned Player, Playlist/SenderQueueHandler and ContinuousAudioSession lifecycle.
-node --check index.mjs passed.
+Full npm test suite passed, including the new tests/manual-selection.mjs.
+node --check index.mjs passed. Independent review reproduced the former false
+STOPPED state and verified cancellation at metadata and PCM/lead boundaries.
 
-New handoff tests verify:
-- predecessor queue/current/title/duration/clock retained during old tail output;
-- staged successor first PCM plus unchanged2500ms lead determines commit;
-- labelled aaabbbc FIFO retained, no early LOADING/STOPPED, no HA service calls;
-- short successor EOF replay after its commit advances to following track;
-- manual Play/Seek/Pause/Stop invalidation, stale ownership callbacks and tokens;
-- public Player.seek with slow HA response cannot change its target A into B;
-- autoplay and updatePlaylist retain mutable library context;
-- playlist-only edits during staging cannot announce C over B's audio;
-- genuine failed staged source drains predecessor and stops only owned session;
-- captured source display metadata supplies new title/artist/duration without
-  blocking on a separate network metadata request.
+The new tests execute the actual pinned Player and production M1S subclass:
+- obsolete title lookup resolving before or after the new selection;
+- obsolete title lookup rejecting while the current song is already ready;
+- older play blocked on group preparation, PCM readiness or transport lead;
+- old initial transport confirmation after a new selection reused that session;
+- late HA reply only closes its abandoned local session, not the new one;
+- explicit normal YouTube Stop invalidates pending title preparation;
+- current validation and HA startup failures still publish STOPPED normally.
+External title, HA and PCM readiness events are controlled in these tests.
+They do not constitute a physical phone/hub playback test or remote HA ordering
+verification.
 
-Existing natural-tail test preserves407680bytes through real production PCM
-assembly/backpressure/sourceEOF/append/output. Additional localhost realOpus
-sources through yt-dlp2026.10.26+ffmpeg preserve all506240 padded outputbytes
-against independent direct decode baselines, no killed sourceprocesses/errors.
-This real-source check validates the unchanged lower pipeline; the new handoff
-controller is tested with actual pinned library classes and controlled PCM/clock.
-No physical phone/hub audio recording or Docker image build performed here.
+Exact comparison with the 1.0.29 archive confirms the entire PCM session class,
+PCM constants and buffers, source spawn/decode and prepared-source command path,
+FIFO, final period handling, output loop and pacing remain byte-identical.
+waitForTransportStarted and transport lead measurement are also identical.
+No integration, per-track HA restart, new buffer or timing offset is introduced.
+Production changes are limited to stale play lifecycle cancellation and guards.
 
-Compared with1.0.28, audio invariants are exact: PCM constants and buffer sizes,
-chunk pacing, outputloop, source _spawn/_decode path and prepared-source reuse,
-transportlead measurement and waitForTransportStarted. No duration offsets or
-new end-of-track timer are introduced; existing PCM timestamps/lead reused.
-Changes are natural-transition control and source-display metadata getter only,
-plus tests/release metadata/docs. Existing manual requests supersede staging.
-No per-song HA restart, source ownership/group restore mapping change or new
-buffering. Reordered candidate already staged is committed as audible identity;
-no fabricated queue index when sender removed it.
+Physical end-of-song clipping followed by silence remains unresolved.
+A read-only audit of local integration source 0.37.20 found an existing individual
+source-rebuffer path that clears pending PCM and kills the remote receiver on
+HA PCM starvation. Occurrence at the user's cut has NOT been established.
+The installed integration version is not verified. Existing integration logs
+(single rebuffer started/ended) were requested before changing any transport.
+No integration source files were modified.
 
-This fixes confirmed premature Cast advancement/races and protects tail delivery.
-Original subjective audible cutoff was not physically reproduced in this host;
-confirm continuous ending on user's hub after update without assuming a live test.
-Publish sources, rebuild/update image, confirm1.0.29. Preserve options/integration.
+Publish sources and rebuild/update the add-on image. Confirm version 1.0.30.
+This release addresses the confirmed manual-selection false-STOPPED defect;
+it does not claim a confirmed physical tail-loss repair.
