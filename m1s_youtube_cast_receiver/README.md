@@ -1,3 +1,23 @@
+## 1.0.34 — Raspunsul de identificare cerut de YouTube
+
+Raspunde comenzii getDiscoveryDeviceId, observata in log si ignorata anterior.
+Mesajul setDiscoveryDeviceId contine identitatea MDX existenta a sesiunii in
+campurile discoveryDeviceId si loungeDeviceId. Nu genereaza un ID nou si nu
+modifica asocierea sau datele salvate pentru YT/YTM.
+
+Schimbul de identificare este separat pentru fiecare sesiune. Se opreste la
+onSetDiscoveryDeviceId, la inchiderea/reinlocuirea sesiunii sau dupa cinci
+raspunsuri, la intervale de10secunde. Logul INFO [M1S-CAST] arata cererea,
+raspunsul si confirmarea, fara identificatori sau tokenuri.
+
+Aceasta completeaza un schimb de protocol lipsa; efectul asupra selectiei
+manuale pe telefon trebuie confirmat. Next si coada functionale in1.0.33 se
+pastreaza. Intregul index.mjs de redare, bufferele, PCM si sincronizarea sunt
+identice cu1.0.33. Pastrati integrarea **0.37.21** si reconstruiti add-on-ul **1.0.34**.
+
+Referinta verificata este serviciul generic din implementarea oficiala YouTube TV:
+https://www.youtube.com/s/_/kabuki/_/js/k=kabuki.base_cr.en_US.G-wN2zlQOe4.es5.O/am=AAAAAEBDAEAhABABNKAgSCg/d=1/excm=main/br=1/rs=ANjRhVkIB_Tk5wvTkdjPDDAN7zbWzxjzKw/m=N5oOV
+
 ## 1.0.33 — Confirmari corecte ale comenzilor si pastrarea cozii
 
 Corecteaza contorul de confirmare BrowserChannel: actualizarea starii nu mai

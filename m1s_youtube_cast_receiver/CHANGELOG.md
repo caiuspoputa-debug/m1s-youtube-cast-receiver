@@ -1,3 +1,20 @@
+## 1.0.34 — Schimbul de identificare al receptorului YouTube
+
+- Implementeaza getDiscoveryDeviceId -> setDiscoveryDeviceId, cu identitatea
+  persistenta MDX a aceleiasi sesiuni in discoveryDeviceId si loungeDeviceId.
+  Nu foloseste screenId, UDN DIAL, identitatea telefonului sau serialul audio.
+- onSetDiscoveryDeviceId confirma numai schimbul aceleiasi sesiuni. Retrimiterea
+  este limitata la cinci raspunsuri la intervale de10s; nu executa nicio comanda audio.
+- Lucrarile sunt izolate intre YT/YTM, se anuleaza la oprire sau inlocuirea
+  conexiunii, iar un callback vechi nu poate anula un schimb mai nou.
+- Logurile de identificare sunt compacte, etichetate cu receptorul, fara ID/token.
+- Next si coada confirmate de utilizator in1.0.33 sunt pastrate. Nu se modifica
+  index.mjs, bufferele, derularea, decodarea sau sincronizarea.
+
+Raspunsul lipsa este confirmat in cod si comanda exista in logul utilizatorului.
+Nu este inca demonstrat ca aceasta este singura cauza a redarii locale pe telefon.
+Pastrati integrarea0.37.21; publicati sursele si reconstruiti add-on-ul1.0.34.
+
 ## 1.0.33 — BrowserChannel ACK si selectie din lista cunoscuta
 
 - Confirmarea AID avanseaza doar din mesajele primite real. Nu mai este
