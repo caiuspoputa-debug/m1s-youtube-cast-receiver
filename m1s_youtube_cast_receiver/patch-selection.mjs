@@ -29,8 +29,7 @@ export function normalizeM1sSelection(message, existing = null) {
   }
   let ids = typeof payload.videoIds === 'string'
     ? payload.videoIds.split(',').filter(Boolean) : [];
-  if (message?.name === 'updatePlaylist' && selectedEvent
-      && !Object.prototype.hasOwnProperty.call(payload, 'videoIds')
+  if (!Object.prototype.hasOwnProperty.call(payload, 'videoIds')
       && payload.listId && payload.listId === existing?.id
       && Array.isArray(existing?.videoIds) && existing.videoIds.includes(id)) {
     ids = existing.videoIds.slice();
@@ -63,17 +62,21 @@ export function patchSelection(root) {
     });
     changes.push([filename, `${marker}\n${patched}`]);
   }
-  prepare('dist/lib/app/Playlist.js', '// M1S selection payload patch v3: explicit selection events and navigation identity', (source, replace) => {
+  prepare('dist/lib/app/Playlist.js', '// M1S selection payload patch v4: preserve known same-list selections', (source, replace) => {
     const oldMarker = '// M1S selection payload patch: standalone video and numeric zero';
     const versionTwo = '// M1S selection payload patch v2: standalone video, zero index and navigation identity';
-    const alreadyGuarded = source.includes(`${versionTwo}\n`);
+    const versionThree = '// M1S selection payload patch v3: explicit selection events and navigation identity';
+    const alreadyEventAware = source.includes(`${versionThree}\n`);
+    const alreadyGuarded = alreadyEventAware || source.includes(`${versionTwo}\n`);
     const alreadyNormalized = alreadyGuarded || source.includes(`${oldMarker}\n`);
     if (alreadyNormalized) {
-      source = replace(source, `${alreadyGuarded ? versionTwo : oldMarker}\n`, '');
+      source = replace(source, `${alreadyEventAware ? versionThree : alreadyGuarded ? versionTwo : oldMarker}\n`, '');
       const helper = source.match(/^function normalizeM1sSelection\(message(?:, existing = null)?\) \{[\s\S]*?^\}\n/m)?.[0];
       if (!helper) throw new Error('Unexpected pinned Playlist.js helper; refusing partial selection patch');
       source = replace(source, helper, `${normalizeM1sSelection.toString()}\n`);
-      source = replace(source, '        const data = normalizeM1sSelection(message);',
+      source = replace(source, alreadyEventAware
+        ? '        const data = normalizeM1sSelection(message, this.getState());'
+        : '        const data = normalizeM1sSelection(message);',
         '        const data = normalizeM1sSelection(message, this.getState());');
     } else {
       source = replace(source, '        const data = message.payload;\n        if (!data.listId) {',
@@ -81,7 +84,9 @@ export function patchSelection(root) {
       source = replace(source, '            if (data.currentIndex && data.videoId) {',
         '            if (data.__m1sSelectedVideo) {');
     }
-    source = replace(source, "        if (message.name === 'setPlaylist') {",
+    source = replace(source, alreadyEventAware
+      ? "        if (message.name === 'setPlaylist' || data.__m1sSelectedVideo) {"
+      : "        if (message.name === 'setPlaylist') {",
       "        if (message.name === 'setPlaylist' || data.__m1sSelectedVideo) {");
     const navigationPatches = [
       ['            __classPrivateFieldSet(this, _Playlist_previousNextAbortController, new AbortController(), "f");',
@@ -103,7 +108,21 @@ export function patchSelection(root) {
     }
     return alreadyNormalized ? source : `${normalizeM1sSelection.toString()}\n${source}`;
   });
-  prepare('dist/lib/app/YouTubeApp.js', '// M1S explicit selection dispatch v2: setPlaylist and VIDEO_SELECTED', (source, replace) => {
+  prepare('dist/lib/app/YouTubeApp.js', '// M1S explicit selection dispatch v3: retain known same-list queue', (source, replace) => {
+    const versionTwo = '// M1S explicit selection dispatch v2: setPlaylist and VIDEO_SELECTED';
+    if (source.includes(`${versionTwo}\n`)) {
+      source = replace(source, `${versionTwo}\n`, '');
+      const helper = source.match(/^function normalizeM1sSelection\(message, existing = null\) \{[\s\S]*?^\}\n/m)?.[0];
+      if (!helper) throw new Error('Unexpected pinned YouTubeApp.js helper; refusing partial selection patch');
+      source = replace(source, helper, `${normalizeM1sSelection.toString()}\n`);
+      for (const known of [
+        `            const m1sPlaySelection = message.name === 'setPlaylist'
+                || normalizeM1sSelection(message, stateBeforeSet).__m1sSelectedVideo;`,
+        '            if (m1sPlaySelection && m1sImmediateCurrent',
+        '            if (m1sPlaySelection && (stateBeforeSet.current?.id !== stateAfterSet.current?.id ||'
+      ]) source = replace(source, known, known);
+      return source;
+    }
     const oldMarker = '// M1S explicit selection starts before remote navigation';
     const alreadyDispatched = source.includes(`${oldMarker}\n`);
     if (alreadyDispatched) {

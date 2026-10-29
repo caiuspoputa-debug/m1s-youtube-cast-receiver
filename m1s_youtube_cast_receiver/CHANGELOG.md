@@ -1,3 +1,25 @@
+## 1.0.33 — BrowserChannel ACK si selectie din lista cunoscuta
+
+- Confirmarea AID avanseaza doar din mesajele primite real. Nu mai este
+  incrementata de publicarea periodica/wake/navigatie a starii si nu preia
+  identificatorul unei comenzi venite prin cealalta sesiune YT/YTM.
+- Testele folosesc Session.sendMessage, reconectarea RPC si BindParams reale
+  pentru ambele aplicatii:120 loturi periodice, confirmari straine/zero/goale,
+  primire inainte de dispatch, reset/refresh, RID si ofs. Sursa initiala reproduce
+  confirmarea30 dupa primirea18; sursa corectata ramane18 si apoi accepta19.
+- setPlaylist fara videoIds pastreaza coada numai pentru acelasi listId explicit
+  si o piesa deja existenta. Coada de101piese si Next supravietuiesc selectiei.
+  Lista explicit goala, alta lista si o piesa necunoscuta isi pastreaza sensul.
+- Patch-urile sunt verificate pe instalare curata si pe upgrade, idempotent,
+  cu refuz inainte de scriere daca sursa dependentei difera de versiunea fixata.
+
+Defectele sunt confirmate prin cod si teste; cauza exacta a revenirii la telefon
+nu este inca demonstrata de fragmentul fizic primit. Protocolul de confirmare:
+https://github.com/google/closure-library/blob/master/closure/goog/net/browserchannel.js
+
+Nu se modifica index.mjs, bufferele audio, decodarea, sincronizarea ori integrarea.
+Pastrati integrarea0.37.21; publicati sursele si reconstruiti add-on-ul1.0.33.
+
 ## 1.0.32 — Selectie explicita si notificarea piesei urmatoare
 
 - Comenzile updatePlaylist cu VIDEO_SELECTED selecteaza piesa ceruta, inclusiv

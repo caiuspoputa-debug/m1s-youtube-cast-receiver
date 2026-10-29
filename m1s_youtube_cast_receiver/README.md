@@ -1,3 +1,25 @@
+## 1.0.33 — Confirmari corecte ale comenzilor si pastrarea cozii
+
+Corecteaza contorul de confirmare BrowserChannel: actualizarea starii nu mai
+avanseaza numarul ultimului mesaj primit. Fiecare sesiune YT/YTM confirma numai
+mesajele primite de ea; o stare transmisa si celeilalte sesiuni nu ii mai poate
+modifica acest contor. Numararea mesajelor trimise, RID si reconectarea raman intacte.
+
+Defectul este reprodus cu Session/RPC/BindParams reale: dupa primirea mesajului18,
+12 actualizari de stare duceau reconectarea la confirmarea30. Acum ramane18 pana
+la primirea unui mesaj nou. Referinta protocolului este implementarea Google:
+https://github.com/google/closure-library/blob/master/closure/goog/net/browserchannel.js
+
+Pastreaza lista cunoscuta si pentru setPlaylist fara videoIds, numai daca
+listId este acelasi si piesa exista deja in lista. Testul cu101piese pastreaza
+urmatorul element si comanda Next dupa selectia manuala, pentru YT si YTM.
+
+Acestea sunt defecte confirmate local. Pierderea legaturii pe telefonul fizic
+trebuie reverificata; logul primit nu include comanda din momentul esecului.
+Intregul index.mjs de redare este identic cu1.0.32: bufferele, PCM, transportul,
+derularea si sincronizarea nu sunt modificate. Pastrati integrarea **0.37.21**.
+Publicati sursele si reconstruiti add-on-ul la **1.0.33**.
+
 ## 1.0.32 — Selectia YouTube si piesa urmatoare
 
 Trateaza selectia explicita VIDEO_SELECTED transmisa prin updatePlaylist,

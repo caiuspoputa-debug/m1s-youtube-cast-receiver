@@ -197,32 +197,36 @@ for (const client of ['YT', 'YTMUSIC']) {
     await refresh.close();
   }
 
-  const known = await fixture(client);
-  const knownIds = [oldId, newId, thirdId, ...Array.from({ length: 98 }, (_, i) => `d${String(i).padStart(10, '0')}`)];
-  await known.incoming('updatePlaylist', { listId: 'original-list', videoIds: knownIds.join(',') });
-  await known.incoming('updatePlaylist', { listId: 'original-list',
-    eventDetails: JSON.stringify({ eventType: 'VIDEO_SELECTED', videoId: newId }) });
-  assert.equal(known.player.queue.videoIds.length, 101, 'omitted same-list IDs retain the known queue');
-  assert.equal(known.player.queue.current.id, newId);
-  assert.equal(known.player.queue.current.context.index, 1);
-  assert.equal(known.player.queue.getState().next.id, thirdId);
-  assert.equal(known.player.getNavInfo().hasNext, true);
-  await known.incoming('next', {});
-  assert.equal(known.player.currentVideoId, thirdId, 'actual App Next uses the retained successor');
-  assert.equal(known.session.active, true);
-  assert.deepEqual(known.services, []);
-  await known.close();
+  for (const selectionType of ['setPlaylist', 'updatePlaylist']) {
+    const known = await fixture(client);
+    const knownIds = [oldId, newId, thirdId, ...Array.from({ length: 98 }, (_, i) => `d${String(i).padStart(10, '0')}`)];
+    await known.incoming('updatePlaylist', { listId: 'original-list', videoIds: knownIds.join(',') });
+    await known.incoming(selectionType, { listId: 'original-list',
+      ...(selectionType === 'setPlaylist' ? { videoId: newId, currentIndex: 1 }
+        : { eventDetails: JSON.stringify({ eventType: 'VIDEO_SELECTED', videoId: newId }) }) });
+    assert.equal(known.player.queue.videoIds.length, 101, 'omitted same-list IDs retain the known queue');
+    assert.equal(known.player.queue.current.id, newId);
+    assert.equal(known.player.queue.current.context.index, 1);
+    assert.equal(known.player.queue.getState().next.id, thirdId);
+    assert.equal(known.player.getNavInfo().hasNext, true);
+    await known.incoming('next', {});
+    assert.equal(known.player.currentVideoId, thirdId, 'actual App Next uses the retained successor');
+    assert.equal(known.session.active, true);
+    assert.deepEqual(known.services, []);
+    await known.close();
+  }
 
-  for (const test of [
-    { listId: 'different-list' },
-    { listId: 'original-list' },
-    { listId: 'original-list', videoIds: '' }
+  for (const selectionType of ['setPlaylist', 'updatePlaylist']) for (const test of [
+    { listId: 'different-list', videoId: thirdId },
+    { listId: 'original-list', videoId: newId },
+    { listId: 'original-list', videoIds: '', videoId: thirdId }
   ]) {
     const standalone = await fixture(client);
-    await standalone.incoming('updatePlaylist', { ...test,
-      eventDetails: JSON.stringify({ eventType: 'VIDEO_SELECTED', videoId: newId }) });
-    assert.deepEqual(standalone.player.queue.videoIds, [newId], 'do not inherit an unrelated or explicitly empty queue');
-    assert.equal(standalone.player.currentVideoId, newId);
+    await standalone.incoming(selectionType, { ...test,
+      ...(selectionType === 'updatePlaylist'
+        ? { eventDetails: JSON.stringify({ eventType: 'VIDEO_SELECTED', videoId: test.videoId }) } : {}) });
+    assert.deepEqual(standalone.player.queue.videoIds, [test.videoId], 'do not inherit an unrelated or explicitly empty queue');
+    assert.equal(standalone.player.currentVideoId, test.videoId);
     assert.equal(standalone.session.active, true);
     assert.deepEqual(standalone.services, []);
     await standalone.close();
@@ -362,7 +366,7 @@ for (const client of ['YT', 'YTMUSIC']) {
 // unexpected dependency cannot silently produce a partially patched install.
 const installed = fs.readFileSync(new URL('../node_modules/yt-cast-receiver/dist/lib/app/Playlist.js', import.meta.url), 'utf8')
   .replace(/\r\n/g, '\n');
-const marker = '// M1S selection payload patch v3: explicit selection events and navigation identity';
+const marker = '// M1S selection payload patch v4: preserve known same-list selections';
 assert.ok(installed.startsWith(`${marker}\n`));
 const pristine = installed.replace(`${marker}\n${normalizeM1sSelection.toString()}\n`, '')
   .replace('        const data = normalizeM1sSelection(message, this.getState());\n        if (!data.listId && !data.__m1sSelectedVideo) {',
@@ -385,7 +389,7 @@ assert.ok(!pristine.includes('normalizeM1sSelection'));
 assert.ok(!pristine.includes('m1sNavigation'));
 const installedApp = fs.readFileSync(new URL('../node_modules/yt-cast-receiver/dist/lib/app/YouTubeApp.js', import.meta.url), 'utf8')
   .replace(/\r\n/g, '\n');
-const appMarker = '// M1S explicit selection dispatch v2: setPlaylist and VIDEO_SELECTED';
+const appMarker = '// M1S explicit selection dispatch v3: retain known same-list queue';
 assert.ok(installedApp.includes(`${appMarker}\n`));
 // Other independent postinstall diagnostics may prepend their own helper.
 const expectedApp = `${appMarker}\n${normalizeM1sSelection.toString()}\n`
@@ -420,6 +424,21 @@ try {
   fs.writeFileSync(target, pristine);
   fs.writeFileSync(appTarget, pristineApp);
   assert.equal(patchSelection(temporary), true);
+  assert.equal(fs.readFileSync(target, 'utf8'), installed);
+  assert.equal(selectionAppSource(fs.readFileSync(appTarget, 'utf8')), selectionAppSource(expectedApp));
+  assert.equal(patchSelection(temporary), false);
+  const version32Normalizer = normalizeM1sSelection.toString().replace(
+    "  if (!Object.prototype.hasOwnProperty.call(payload, 'videoIds')",
+    "  if (message?.name === 'updatePlaylist' && selectedEvent\n      && !Object.prototype.hasOwnProperty.call(payload, 'videoIds')");
+  const version32Playlist = installed
+    .replace(marker, '// M1S selection payload patch v3: explicit selection events and navigation identity')
+    .replace(normalizeM1sSelection.toString(), version32Normalizer);
+  const version32App = expectedApp
+    .replace(appMarker, '// M1S explicit selection dispatch v2: setPlaylist and VIDEO_SELECTED')
+    .replace(normalizeM1sSelection.toString(), version32Normalizer);
+  fs.writeFileSync(target, version32Playlist);
+  fs.writeFileSync(appTarget, version32App);
+  assert.equal(patchSelection(temporary), true, 'upgrade both embedded .32 normalizers');
   assert.equal(fs.readFileSync(target, 'utf8'), installed);
   assert.equal(selectionAppSource(fs.readFileSync(appTarget, 'utf8')), selectionAppSource(expectedApp));
   assert.equal(patchSelection(temporary), false);
@@ -472,8 +491,14 @@ try {
   assert.throws(() => patchSelection(temporary), /refusing partial selection patch/);
   assert.equal(fs.readFileSync(target, 'utf8'), brokenVersion31, 'validate existing .31 navigation guards during upgrade');
   assert.equal(fs.readFileSync(appTarget, 'utf8'), version31App, 'failed .31 upgrade leaves both files intact');
+  const brokenVersion32App = version32App.replace('if (m1sPlaySelection && m1sImmediateCurrent', 'if (unexpectedSelectionShape && m1sImmediateCurrent');
+  fs.writeFileSync(target, version32Playlist);
+  fs.writeFileSync(appTarget, brokenVersion32App);
+  assert.throws(() => patchSelection(temporary), /refusing partial selection patch/);
+  assert.equal(fs.readFileSync(target, 'utf8'), version32Playlist, 'App drift cannot leave only the .32 Playlist upgraded');
+  assert.equal(fs.readFileSync(appTarget, 'utf8'), brokenVersion32App);
 } finally {
   assert.ok(path.resolve(temporary).startsWith(path.resolve(os.tmpdir()) + path.sep));
   fs.rmSync(temporary, { recursive: true, force: true });
 }
-console.log('PASS: actual App/M1S/session support explicit setPlaylist and VIDEO_SELECTED updates through YT/YTM, retain same-list 101-track queue and Next; ordinary edits never Play; clear/removal and rapid cancellation preserved; clean/.31 patch installs pinned, idempotent and atomic.');
+console.log('PASS: actual App/M1S/session support explicit setPlaylist and VIDEO_SELECTED updates through YT/YTM, retain same-list 101-track queue and Next; ordinary edits never Play; clear/removal and rapid cancellation preserved; clean/.31/.32 patch installs pinned, idempotent and atomic.');
