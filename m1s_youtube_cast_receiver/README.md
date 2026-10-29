@@ -1,3 +1,22 @@
+## 1.0.35 — Diagnostic pentru deconectarea YouTube
+
+Aceasta versiune adauga numai logul INFO `event=sender_presence`. Nu este o
+corectie confirmata pentru selectarea unei piese noi in YouTube. Logul real
+din 1.0.34 arata o deconectare explicita, dar nu include motivul ei.
+
+Noul eveniment arata motivul `disconnectBehavior`, valoarea si tipul `ui`,
+numarul dispozitivelor si daca telefonul cunoscut mai exista in lista primita
+si in lista interpretata de receptor. Nu afiseaza ID-uri, tokenuri sau conturi.
+Diagnosticul nu modifica dispozitivele primite, deciziile de conectare/oprire,
+comenzile, coada, Next sau schimbul de identificare din 1.0.34.
+
+Intregul `index.mjs`, bufferele, transportul PCM si sincronizarea sunt identice
+cu 1.0.34. Pastrati integrarea **0.37.21**. Pentru acest diagnostic publicati
+sursele si reconstruiti add-on-ul la **1.0.35**.
+
+Dupa reproducere, copiati din log liniile `[M1S-CAST]` din jurul evenimentelor
+`sender_presence`, `sender_disconnect` si `player_reset`.
+
 ## 1.0.34 — Raspunsul de identificare cerut de YouTube
 
 Raspunde comenzii getDiscoveryDeviceId, observata in log si ignorata anterior.

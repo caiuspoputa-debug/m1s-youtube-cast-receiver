@@ -14,7 +14,18 @@ const patched = patchControlTrace(appSource, '2.1.0');
 assert.equal(patchControlTrace(patched, '2.1.0'), patched, 'patch must be idempotent');
 const laterMarker = '// A later dependency patch may prepend its own marker\n';
 assert.equal(patchControlTrace(laterMarker + patched, '2.1.0'), laterMarker + patched);
-assert.equal(patched.split('// M1S control lifecycle trace v2').length - 1, 1);
+assert.equal(patched.split('// M1S control lifecycle trace v3').length - 1, 1);
+const presenceHelper = patched.match(/^function m1sTraceSenderPresence\([\s\S]*?^}\n/m)?.[0];
+const presenceStart = patched.indexOf('            try {\n                m1sTraceSenderPresence(');
+const presenceEnd = patched.indexOf('            if (this.state === STATUSES.STARTING)', presenceStart);
+assert.ok(presenceHelper && presenceStart >= 0 && presenceEnd > presenceStart);
+const presenceCall = patched.slice(presenceStart, presenceEnd);
+const version2 = patched.replace(presenceHelper, '').replace(presenceCall, '')
+  .replace('// M1S control lifecycle trace v3', '// M1S control lifecycle trace v2');
+assert.equal(patchControlTrace(version2, '2.1.0'), patched, 'installed v2 must upgrade without duplicating prior traces');
+assert.equal(patchControlTrace(laterMarker + version2, '2.1.0'), laterMarker + patched);
+assert.throws(() => patchControlTrace(patched.replace(presenceCall, ''), '2.1.0'), /target mismatch/);
+assert.throws(() => patchControlTrace(version2.replace('            if (this.state === STATUSES.STARTING)', '            if (false)'), '2.1.0'), /target mismatch/);
 assert.throws(() => patchControlTrace(appSource, '2.2.0'), /requires.*2\.1\.0/);
 assert.throws(() => patchControlTrace('export default class Unknown {}', '2.1.0'), /target mismatch/);
 new Function(patched.replace(/^import .*;\r?\n/gm, '').replace('export default YouTubeApp;', ''));
@@ -61,6 +72,7 @@ const api = new Function(...Object.keys(dependencies), `${code}
 return {
   App: YouTubeApp,
   trace: m1sTraceCastControl,
+  presence: m1sTraceSenderPresence,
   incoming: (app, message, session) => _YouTubeApp_handleIncomingMessage.call(app, message, session),
   connected: (app, sender, session) => _YouTubeApp_handleSenderConnected.call(app, sender, session),
   disconnected: (app, sender, session, implicit) => _YouTubeApp_handleSenderDisconnected.call(app, sender, session, implicit)
@@ -113,6 +125,23 @@ for (const secret of Object.values(secrets).concat(['pairing-secret', 'another-p
 
 const sender = Sender.parse({ id: 'safe-sender', name: 'Tablet', theme: 'cl', capabilities: '' });
 await api.connected(app, sender, yt);
+const senderData = { id: 'safe-sender', name: 'Tablet', theme: 'cl', type: 'REMOTE_CONTROL' };
+const presencePayload = {
+  devices: JSON.stringify([senderData, { id: 'private-screen-id', type: 'LOUNGE_SCREEN', user: 'private-screen-user' }]),
+  connectionEventDetails: JSON.stringify({ deviceId: sender.id, ui: 'true',
+    disconnectBehavior: 'MDX_SESSION_DISCONNECT_BEHAVIOR_DISCONNECTED_BY_USER', ...secrets })
+};
+const originalPresencePayload = structuredClone(presencePayload);
+const beforePresence = player.resets;
+await incoming('loungeStatus', presencePayload);
+assert.deepEqual(presencePayload, originalPresencePayload, 'diagnostics must not mutate the original protocol fields');
+assert.equal(player.resets, beforePresence, 'a present known sender remains connected');
+const presence = traces.filter(line => line.includes('event=sender_presence')).at(-1);
+assert.ok(presence.includes('clientKey=YT activeClientKey=YT state=running'));
+assert.ok(presence.includes('totalDevices=2 nonScreenDevices=1 remoteControlDevices=1 parsedSenders=1 registeredSenders=1'));
+assert.ok(presence.includes('changedKnown=true changedInRaw=true changedInParsed=true ui=true uiType=string'));
+assert.ok(presence.includes('disconnectBehavior=MDX_SESSION_DISCONNECT_BEHAVIOR_DISCONNECTED_BY_USER'));
+assert.ok(!presence.includes(sender.id) && !presence.includes('private-screen'));
 const beforeImplicit = player.resets;
 await api.disconnected(app, sender, yt, true);
 assert.equal(player.resets, beforeImplicit, 'implicit disconnect policy unchanged');
@@ -123,6 +152,56 @@ await api.disconnected(app, sender, ytm, false);
 assert.ok(traces.some(line => line.includes('event=sender_disconnect') && line.includes('kind=implicit active=true')));
 assert.ok(traces.some(line => line.includes('event=sender_disconnect') && line.includes('kind=explicit active=false')));
 assert.ok(traces.some(line => line.includes('event=player_reset') && line.includes('reason=all_senders_disconnected')));
+
+// The added trace must expose the original parser decision without fixing or
+// reinterpreting it: boolean true is implicit; missing type is excluded from
+// the existing REMOTE_CONTROL-only list even when the raw known ID is present.
+await api.connected(app, sender, yt);
+const beforeBooleanUi = player.resets;
+await incoming('loungeStatus', { devices: '[]',
+  connectionEventDetails: JSON.stringify({ deviceId: sender.id, ui: true }) });
+assert.equal(player.resets, beforeBooleanUi, 'boolean ui must retain the existing implicit-disconnect policy');
+assert.ok(traces.filter(line => line.includes('event=sender_presence')).at(-1).includes('ui=true uiType=boolean'));
+await api.connected(app, sender, yt);
+const beforeMissingType = player.resets;
+const info = logger.info;
+logger.info = (...args) => {
+  if (String(args[0]).includes('event=sender_presence')) throw new Error('trace sink unavailable');
+  info(...args);
+};
+try {
+  const { type, ...typeless } = senderData;
+  await incoming('loungeStatus', { devices: JSON.stringify([typeless]),
+    connectionEventDetails: JSON.stringify({ deviceId: sender.id, ui: 'true' }) });
+} finally { logger.info = info; }
+assert.equal(player.resets, beforeMissingType + 1, 'failing diagnostics cannot change the original explicit/reset outcome');
+await api.connected(app, sender, yt);
+const { type, ...typeless } = senderData;
+await incoming('loungeStatus', { devices: JSON.stringify([typeless]),
+  connectionEventDetails: JSON.stringify({ deviceId: sender.id, ui: 'true' }) });
+const excluded = traces.filter(line => line.includes('event=sender_presence')).at(-1);
+assert.ok(excluded.includes('totalDevices=1 nonScreenDevices=1 remoteControlDevices=0 parsedSenders=0 registeredSenders=1'));
+assert.ok(excluded.includes('changedKnown=true changedInRaw=true changedInParsed=false'));
+
+api.presence(logger, player, { connectionEventDetails: JSON.stringify({ deviceId: 'private-device-secret',
+  ui: 'private-ui-secret', disconnectBehavior: 'https://private.test/?token=disconnect-secret', ...secrets }) },
+  [{ id: 'private-device-secret', user: 'private-device-user', type: 'REMOTE_CONTROL' }],
+  [{ id: 'private-device-secret' }], [{ id: 'private-device-secret' }], 700, 'YT', 'YT', 'running');
+const redactedPresence = traces.at(-1);
+assert.ok(redactedPresence.includes('ui=<invalid> uiType=string disconnectBehavior=<invalid>'));
+assert.ok(!redactedPresence.includes('secret') && !redactedPresence.includes('private-device'));
+api.presence(logger, player, { connectionEventDetails: JSON.stringify({ ui: false,
+  disconnectBehavior: 'MDX_SESSION_DISCONNECT_BEHAVIOR_PRIVATE_DEVICE_SECRET' }) }, [], [], [], 704, 'YT', 'YT', 'running');
+assert.ok(traces.at(-1).includes('ui=false uiType=boolean disconnectBehavior=<invalid>'));
+assert.ok(!traces.at(-1).includes('PRIVATE_DEVICE_SECRET'), 'only the public reason enum may be logged');
+assert.doesNotThrow(() => api.presence(logger, player, { connectionEventDetails: '{invalid json' }, null, null, null, 701, 'YT', 'YT', 'running'));
+assert.ok(traces.at(-1).includes('totalDevices=<missing>'));
+assert.ok(traces.at(-1).includes('ui=<missing> uiType=undefined disconnectBehavior=<missing>'));
+assert.doesNotThrow(() => api.presence(logger, player, {
+  get connectionEventDetails() { throw new Error('unreadable details'); }
+}, [], [], [], 702, 'YT', 'YT', 'running'));
+assert.doesNotThrow(() => api.presence({ info() { throw new Error('unavailable logger'); } }, player,
+  {}, [], [], [], 703, 'YT', 'YT', 'running'));
 
 const beforeSwitch = player.resets;
 await app.launch('pairingCode=music-pairing-secret&theme=m');

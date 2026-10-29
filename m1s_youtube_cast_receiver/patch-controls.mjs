@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 const oldMarker = '// M1S control lifecycle trace v1';
-const marker = '// M1S control lifecycle trace v2';
+const previousMarker = '// M1S control lifecycle trace v2';
+const marker = '// M1S control lifecycle trace v3';
 const helper = `${marker}
 function m1sTraceCastControl(logger, player, event, fields) {
     try {
@@ -50,16 +51,82 @@ function m1sTracePlaylistFields(payload, player) {
         };
     } catch (_) { return {}; }
 }
+function m1sTraceSenderPresence(logger, player, payload, devices, parsed, registered, AID, clientKey, activeClientKey, state) {
+    try {
+        let details;
+        try { details = payload?.connectionEventDetails ? JSON.parse(payload.connectionEventDetails) : null; }
+        catch (_) { details = null; }
+        const changedId = details?.deviceId;
+        const raw = Array.isArray(devices) ? devices : null;
+        const senders = Array.isArray(parsed) ? parsed : [];
+        const known = Array.isArray(registered) ? registered : [];
+        const ui = details?.ui;
+        const safeUi = ui === undefined || ui === null || typeof ui === 'boolean' || ui === 'true' || ui === 'false'
+            ? ui : '<invalid>';
+        const behavior = details?.disconnectBehavior;
+        // Public Google TV disconnect-reason enum; never print an arbitrary
+        // value supplied in the event's metadata, even if it resembles an enum.
+        const behaviorPrefix = 'MDX_SESSION_DISCONNECT_BEHAVIOR_';
+        const knownBehaviors = ('UNKNOWN DISCONNECTED_BY_USER ROUTE_UNSELECTED INCOGNITO NETWORK USER_CHANGED SCREEN_APP_STOPPED '
+            + 'CONNECTION_TIMEOUT CLOUD_SCREEN_NOT_FOUND CLOUD_NO_LOUNGE_TOKEN DIAL_MISSING_URL DIAL_WAKE_ON_LAN_FAILED DIAL_SERVER_ERROR '
+            + 'DIAL_CLIENT_ERROR NETWORK_CHANGED LOUNGE_TOKEN_REQUEST_FAILED MDX_STOPPED BROWSER_CHANNEL_ERROR RECONNECT_REQUEST_FAILED '
+            + 'CAST_SDK_DISCONNECTED LOUNGE_TOKEN_UNAUTHORIZED APP_TERMINATED MULTI_USER_NOT_ALLOWED DIAL_SCREEN_UNAVAILABLE '
+            + 'CAST_AUTHENTICATION_FAILURE CAST_SDK_CANCELLED NOT_ONLINE UNMATCHING_THEME RECEIVER_DEAD_AFTER_RECEIVER_PING '
+            + 'KIDS_ON_CAST_ICON_VISIBILITY_HIDDEN DIAL_CLOUD_SCREEN_FOR_PAIRING_CODE_NOT_FOUND DIAL_RECOVERY_SMOOTH_PAIRING_SCREEN_NOT_ONLINE '
+            + 'DIAL_RECOVERY_WAKE_ON_LAN_STARTED CLOUD_CHANNEL_NETWORK_ERROR WEB_SOCKET_NETWORK_ERROR CAST_SDK_NETWORK_ERROR '
+            + 'DIAL_LAUNCH_NETWORK_ERROR NETWORK_CHANGED_ON_REACHABILITY_UPDATE CAST_DISCONNECT_TIMEOUT APP_LAUNCH_CAST_INIT_TIMEOUT '
+            + 'CAST_SESSION_START_FAILED_ERROR GENERAL_CAST_SDK_DISCONNECT NEW_SENDER_WITH_DIFFERENT_THEME '
+            + 'RECONNECTING_SENDER_DOES_NOT_MATCH_LAST_MANUAL_CONNECTED_SENDER_THEME DISCONNECTED_BY_USER_PLAY_ON_PHONE '
+            + 'DISCONNECTED_BY_USER_SCREEN_INITIATED APP_MOVED_TO_BACKGROUND COMPROMISED_RECEIVER SHORTS_ACTIVE_PLAYBACK NO_ACTIVE_PLAYBACK '
+            + 'CRAYOLA_UNSUPPORTED ACCOUNT_LOCKED').split(' ');
+        const safeBehavior = behavior === undefined || behavior === null ? behavior
+            : typeof behavior === 'string' && behavior.startsWith(behaviorPrefix)
+                && knownBehaviors.includes(behavior.slice(behaviorPrefix.length))
+                ? behavior : '<invalid>';
+        m1sTraceCastControl(logger, player, 'sender_presence', {
+            AID, clientKey, activeClientKey, state,
+            totalDevices: raw?.length,
+            nonScreenDevices: raw?.filter(device => device?.type !== 'LOUNGE_SCREEN').length,
+            remoteControlDevices: raw?.filter(device => device?.type === 'REMOTE_CONTROL').length,
+            parsedSenders: senders.length,
+            registeredSenders: known.length,
+            changedKnown: changedId ? known.some(sender => sender?.id === changedId) : undefined,
+            changedInRaw: changedId && raw ? raw.some(device => device?.id === changedId) : undefined,
+            changedInParsed: changedId ? senders.some(sender => sender?.id === changedId) : undefined,
+            ui: safeUi, uiType: typeof ui, disconnectBehavior: safeBehavior
+        });
+    } catch (_) {
+        // Inspecting sender presence must never affect connection decisions.
+    }
+}
 `;
 
 /** Add diagnostics to pinned control paths without changing their decisions. */
 export function patchControlTrace(input, version) {
   if (version !== '2.1.0') throw new Error(`Cast control trace requires yt-cast-receiver 2.1.0; got ${version}`);
   let source = input.replace(/\r\n/g, '\n');
+  const player = '__classPrivateFieldGet(this, _YouTubeApp_player, "f")';
+  const logger = '__classPrivateFieldGet(this, _YouTubeApp_logger, "f")';
+  const active = '__classPrivateFieldGet(this, _YouTubeApp_activeSession, "f")';
+  const presenceAnchor = '            if (this.state === STATUSES.STARTING) {';
+  const presenceTrace = `            try {
+                m1sTraceSenderPresence(${logger}, ${player}, payload, loungeDevices, loungeStatusSenders,
+                    __classPrivateFieldGet(this, _YouTubeApp_connectedSenders, "f"), AID, client?.key, ${active}?.client?.key, this.state);
+            } catch (_) {
+                // Diagnostic reads must never alter the sender lifecycle.
+            }
+`;
   if (source.includes(marker)) {
-    const pattern = /^\/\/ M1S control lifecycle trace v2\nfunction m1sTraceCastControl\([\s\S]*?\n}\nfunction m1sTracePlaylistFields\([\s\S]*?\n}\n/m;
-    if (source.split(marker).length !== 2 || !pattern.test(source)) throw new Error('Cast control trace helper target mismatch');
+    const pattern = /^\/\/ M1S control lifecycle trace v3\nfunction m1sTraceCastControl\([\s\S]*?\n}\nfunction m1sTracePlaylistFields\([\s\S]*?\n}\nfunction m1sTraceSenderPresence\([\s\S]*?\n}\n/m;
+    if (source.split(marker).length !== 2 || !pattern.test(source) || source.split(presenceTrace).length !== 2)
+      throw new Error('Cast control trace helper target mismatch');
     return source.replace(pattern, helper);
+  }
+  if (source.includes(previousMarker)) {
+    const pattern = /^\/\/ M1S control lifecycle trace v2\nfunction m1sTraceCastControl\([\s\S]*?\n}\nfunction m1sTracePlaylistFields\([\s\S]*?\n}\n/m;
+    if (source.split(previousMarker).length !== 2 || !pattern.test(source) || source.split(presenceAnchor).length !== 2)
+      throw new Error('Cast control trace upgrade target mismatch');
+    return source.replace(pattern, helper).replace(presenceAnchor, presenceTrace + presenceAnchor);
   }
   const alreadyTraced = source.includes(oldMarker);
   if (alreadyTraced) {
@@ -71,10 +138,9 @@ export function patchControlTrace(input, version) {
     if (source.split(needle).length !== 2) throw new Error(`Cast control trace target mismatch: ${needle.slice(0, 90)}`);
     source = source.replace(needle, replacement);
   };
-  const player = '__classPrivateFieldGet(this, _YouTubeApp_player, "f")';
-  const logger = '__classPrivateFieldGet(this, _YouTubeApp_logger, "f")';
-  const active = '__classPrivateFieldGet(this, _YouTubeApp_activeSession, "f")';
   const trace = (event, fields) => `m1sTraceCastControl(${logger}, ${player}, '${event}', { ${fields} });`;
+
+  replaceOnce(presenceAnchor, presenceTrace + presenceAnchor);
 
   if (alreadyTraced) {
     const oldIncomingEnd = "currentTime: name === 'seekTo' ? payload?.newTime : payload?.currentTime });";

@@ -1,3 +1,16 @@
+## 1.0.35 — Motivul deconectarii YouTube in log
+
+- Adauga numai diagnosticul pasiv `event=sender_presence` pentru loungeStatus.
+- Inregistreaza motivul validat, valoarea/tipul ui, numarul dispozitivelor si
+  prezenta telefonului cunoscut in lista originala fata de cea interpretata.
+  Nu inregistreaza identificatori, payload-uri complete, tokenuri sau conturi.
+- Pastreaza toate deciziile de conectare/deconectare si politica de oprire.
+  Piesele, Next, YTM, identificarea, bufferele si sincronizarea raman identice.
+- Nu este prezentata drept remediu al revenirii pe telefon. Acest diagnostic
+  completeaza motivul lipsa din logul real 1.0.34, necesar unei corectii tintite.
+
+Pastrati integrarea 0.37.21. Publicati sursele si reconstruiti add-on-ul 1.0.35.
+
 ## 1.0.34 — Schimbul de identificare al receptorului YouTube
 
 - Implementeaza getDiscoveryDeviceId -> setDiscoveryDeviceId, cu identitatea
