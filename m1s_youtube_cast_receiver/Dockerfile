@@ -22,7 +22,7 @@ WORKDIR /app
 COPY package.json /app/package.json
 COPY patch-receiver.mjs next-navigation.mjs /app/
 COPY patch-music.mjs music-start.mjs /app/
-COPY patch-volume.mjs patch-discovery.mjs /app/
+COPY patch-volume.mjs patch-discovery.mjs patch-dial-ipv4.mjs /app/
 COPY patch-selection.mjs patch-controls.mjs patch-wake-state.mjs /app/
 COPY patch-protocol-ack.mjs /app/
 COPY patch-discovery-identity.mjs /app/

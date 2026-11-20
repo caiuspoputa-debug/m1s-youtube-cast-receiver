@@ -1,3 +1,21 @@
+1.0.36 validation
+
+- Built directly from the supplied 1.0.35 YT Disconnect Diagnostic sources.
+- The active 1.0.35 instance was probed before the change: audio port 8098 was
+  reachable on IPv4, while every advertised DIAL port 8099-8110 refused IPv4.
+  Its /health endpoint still listed all 12 intended receivers, isolating the
+  failure to the DIAL HTTP listener rather than HA entity discovery or SSDP.
+- yt-cast-receiver 2.1.0 postinstall now applies one strict, version-checked,
+  idempotent patch to DialServer.js: Express listens on 0.0.0.0. Existing LAN
+  selection, IPv4 LOCATION, periodic SSDP and persistent identities are intact.
+- `npm test` passed all 28 scripts, including real Playlist/Player/App paths,
+  queue/Next/autoplay, continuous PCM, full natural tail, manual selection,
+  cancellation, SSDP/interface restriction, protocol ACK, sender diagnostics,
+  discovery identity and the new installed-dependency IPv4 assertion.
+- Node syntax checks passed. No Home Assistant integration files are changed.
+- Final archive validation excludes node_modules and package-lock.json and
+  checks version 1.0.36 in both config.yaml and package.json.
+
 1.0.31 validation
 
 Final npm postinstall and all 24 npm test scripts passed.

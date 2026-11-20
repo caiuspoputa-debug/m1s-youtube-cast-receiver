@@ -1,3 +1,10 @@
+## 1.0.36 — DIAL IPv4 accesibil
+
+Pastreaza anuntarea LAN/SSDP si toate functiile 1.0.35, dar leaga explicit
+serverele HTTP DIAL la IPv4. Astfel, porturile 8099–8110 publicate in LOCATION
+pot fi deschise de YouTube/YTM chiar daca IPv6 este dezactivat. Redarea,
+coada/autoplay, PCM-ul continuu si sincronizarea nu sunt modificate.
+
 ## 1.0.31 — Trecere mai rapida si selectie manuala YouTube
 
 Pregateste informatiile urmatoarei surse inainte de final, prin extragere fara

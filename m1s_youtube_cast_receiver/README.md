@@ -1,3 +1,14 @@
+## 1.0.36 — Receiver-ele DIAL raspund pe IPv4
+
+1.0.35 anunta corect toate receiver-ele pe LAN IPv4, dar serverele HTTP DIAL din
+dependenta porneau fara o adresa de ascultare explicita. In mediul actual,
+porturile anuntate 8099–8110 nu acceptau conexiuni IPv4, desi SSDP indica URL-uri
+IPv4. 1.0.36 leaga acele endpointuri la `0.0.0.0`.
+
+Selectia interfetei LAN, excluderea Tailscale/Docker, numele, identitatile,
+anunturile repetate si toate functiile de redare din 1.0.35 sunt pastrate.
+`index.mjs`, coada, PCM-ul continuu, bufferele si sincronizarea nu sunt schimbate.
+
 ## 1.0.35 — Diagnostic pentru deconectarea YouTube
 
 Aceasta versiune adauga numai logul INFO `event=sender_presence`. Nu este o

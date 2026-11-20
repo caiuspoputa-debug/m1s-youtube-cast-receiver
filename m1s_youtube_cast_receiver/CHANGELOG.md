@@ -1,3 +1,17 @@
+## 1.0.36 — Porturile DIAL accesibile pe IPv4
+
+- Pastreaza integral anuntarea buna din 1.0.35: selectia LAN automata,
+  excluderea Tailscale/Docker, adresa LOCATION IPv4, identitatile persistente si
+  anunturile SSDP initiale/periodice pentru fiecare receiver.
+- Corecteaza nepotrivirea confirmata prin test de retea: SSDP publica
+  `192.168.0.20:8099-8110`, dar serverele HTTP DIAL ale dependentei porneau fara
+  adresa explicita si nu acceptau conexiuni IPv4 in mediul curent.
+- Leaga exclusiv endpointurile HTTP DIAL la `0.0.0.0`, aceeasi familie IPv4 deja
+  publicata. Patch-ul verifica strict dependenta fixata 2.1.0 si refuza build-ul
+  daca tinta nu mai corespunde.
+- Nu modifica `index.mjs`, coada, Next/autoplay, diagnosticul deconectarii,
+  selectia manuala, PCM-ul continuu, bufferele, sincronizarea ori integrarea HA.
+
 ## 1.0.35 — Motivul deconectarii YouTube in log
 
 - Adauga numai diagnosticul pasiv `event=sender_presence` pentru loungeStatus.

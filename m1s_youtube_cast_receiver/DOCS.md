@@ -1,3 +1,10 @@
+## Corectie vizibilitate Cast — versiunea 1.0.36
+
+Versiunea 1.0.36 pastreaza anunturile SSDP IPv4 din 1.0.35 si face accesibile pe
+IPv4 si endpointurile HTTP DIAL corespunzatoare. Nu este necesara activarea IPv6.
+Dupa actualizare, reporneste add-on-ul si redeschide meniul Cast din YouTube/YTM.
+Nu exista nicio optiune noua de configurat.
+
 ## Nume Cast custom — versiunea 1.0.19
 
 Versiunea 1.0.19 include automat coordinatorul și routerele prin filtrul
